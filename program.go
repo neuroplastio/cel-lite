@@ -37,6 +37,9 @@ func (e *Env) Compile(src string) (*Program, error) {
 // Program plans a checked expression, the tree Check returned in this
 // Env.
 func (e *Env) Program(x *Expr) (*Program, error) {
+	if tooDeep(x, 1) {
+		return nil, &Error{Kind: SyntaxError, Pos: x.Pos, Msg: "expression is nested deeper than " + strconv.Itoa(MaxDepth)}
+	}
 	c := &compiler{env: e}
 	fn := c.compile(x)
 	if c.err != nil {
@@ -80,6 +83,7 @@ type compiler struct {
 }
 
 func (c *compiler) compile(x *Expr) evalFn {
+	probe()
 	if c.err != nil {
 		return nil
 	}
@@ -89,10 +93,7 @@ func (c *compiler) compile(x *Expr) evalFn {
 		if c.err != nil {
 			return nil
 		}
-		return func(a Activation) Value {
-			v, _ := at(a)
-			return v
-		}
+		return attrValue(at)
 	}
 	args := make([]evalFn, len(x.Args))
 	for i, a := range x.Args {
@@ -100,13 +101,39 @@ func (c *compiler) compile(x *Expr) evalFn {
 			return nil
 		}
 	}
+	return c.build(x, args)
+}
+
+// The planner recurses through compile and attr alone, which keep their
+// frames small, and builds each node's closure in a function apart, not
+// inlined, after its operands': a TinyGo goroutine's stack is 64 KB, and
+// a function's frame has room for all its cases' temporaries.
+
+// attrValue is an attribute's value alone.
+//
+//go:noinline
+func attrValue(at attrFn) evalFn {
+	return func(a Activation) Value {
+		v, _ := at(a)
+		return v
+	}
+}
+
+// build makes x's closure from its operands'.
+//
+//go:noinline
+func (c *compiler) build(x *Expr, args []evalFn) evalFn {
 	switch x.Op {
 	case OpLit:
 		v := literal(x.Value)
-		return func(Activation) Value { return v }
+		return func(Activation) Value {
+			probe()
+			return v
+		}
 	case OpVar:
 		i, name := x.Ref, x.Name
 		return func(a Activation) Value {
+			probe()
 			v, p := a.Var(i)
 			switch p {
 			case Present:
@@ -336,60 +363,93 @@ type attrFn func(a Activation) (Value, bool)
 
 // attr plans x as an attrFn.
 func (c *compiler) attr(x *Expr) attrFn {
+	probe()
 	if c.err != nil {
 		return nil
 	}
 	switch x.Op {
 	case OpVar:
-		v := c.compile(x)
-		return func(a Activation) (Value, bool) { return v(a), true }
+		return absolute(c.compile(x))
 	case OpSelect:
 		return c.selectAttr(x, c.attr(x.Args[0]))
 	case OpIndex:
-		op, ix := c.attr(x.Args[0]), c.compile(x.Args[1])
-		return func(a Activation) (Value, bool) {
-			o, abs := op(a)
-			if o.k == errKind || o.k == unknownKind && !abs {
+		return indexAttr(c.attr(x.Args[0]), c.compile(x.Args[1]))
+	case OpCond:
+		return condAttr(c.compile(x.Args[0]), c.attr(x.Args[1]), c.attr(x.Args[2]))
+	}
+	return relative(c.compile(x))
+}
+
+// absolute is a variable as an attribute.
+//
+//go:noinline
+func absolute(v evalFn) attrFn {
+	return func(a Activation) (Value, bool) { return v(a), true }
+}
+
+// relative is a computed value as an attribute.
+//
+//go:noinline
+func relative(v evalFn) attrFn {
+	return func(a Activation) (Value, bool) { return v(a), false }
+}
+
+// indexAttr is op[ix].
+//
+//go:noinline
+func indexAttr(op attrFn, ix evalFn) attrFn {
+	if op == nil || ix == nil {
+		return nil
+	}
+	return func(a Activation) (Value, bool) {
+		o, abs := op(a)
+		if o.k == errKind || o.k == unknownKind && !abs {
+			return o, abs
+		}
+		i := ix(a)
+		switch {
+		case i.k == errKind:
+			return i, abs
+		case o.k == unknownKind:
+			// cel-go makes the index a qualifier first, even of
+			// a variable that is unknown.
+			switch i.k {
+			case StringKind, IntKind, UintKind, BoolKind, DoubleKind, unknownKind:
 				return o, abs
 			}
-			i := ix(a)
-			switch {
-			case i.k == errKind:
-				return i, abs
-			case o.k == unknownKind:
-				// cel-go makes the index a qualifier first, even of
-				// a variable that is unknown.
-				switch i.k {
-				case StringKind, IntKind, UintKind, BoolKind, DoubleKind, unknownKind:
-					return o, abs
-				}
-				return errValue(eMessage, "invalid qualifier type: "+kindNames[i.k]), abs
-			case i.k == unknownKind:
-				return i, abs
-			}
-			return index(o, i), abs
+			return errValue(eMessage, "invalid qualifier type: "+kindNames[i.k]), abs
+		case i.k == unknownKind:
+			return i, abs
 		}
-	case OpCond:
-		cond, t, f := c.compile(x.Args[0]), c.attr(x.Args[1]), c.attr(x.Args[2])
-		return func(a Activation) (Value, bool) {
-			v := cond(a)
-			switch {
-			case v.k >= errKind:
-				return v, false
-			case v.k != BoolKind:
-				return errValue(eNoOverload, "_?_:_"), false
-			case v.n != 0:
-				return t(a)
-			}
-			return f(a)
-		}
+		return index(o, i), abs
 	}
-	v := c.compile(x)
-	return func(a Activation) (Value, bool) { return v(a), false }
+}
+
+// condAttr is cond ? t : f: whichever branch it takes.
+//
+//go:noinline
+func condAttr(cond evalFn, t, f attrFn) attrFn {
+	if cond == nil || t == nil || f == nil {
+		return nil
+	}
+	return func(a Activation) (Value, bool) {
+		v := cond(a)
+		switch {
+		case v.k >= errKind:
+			return v, false
+		case v.k != BoolKind:
+			return errValue(eNoOverload, "_?_:_"), false
+		case v.n != 0:
+			return t(a)
+		}
+		return f(a)
+	}
 }
 
 // selectAttr plans a selection: a struct's field by index when the
 // operand is typed as that struct, else by name at run time.
+//
+//go:noinline
 func (c *compiler) selectAttr(x *Expr, op attrFn) attrFn {
 	if c.err != nil {
 		return nil
@@ -419,6 +479,8 @@ func (c *compiler) selectAttr(x *Expr, op attrFn) attrFn {
 }
 
 // selectValue is o.name for an o whose type is known only at run time.
+//
+//go:noinline
 func (c *compiler) selectValue(o Value, name string, key Value) Value {
 	switch o.k {
 	case MapKind:
@@ -439,6 +501,8 @@ func (c *compiler) selectValue(o Value, name string, key Value) Value {
 
 // index is c[i]: a list's element at an int (or a uint or a double that
 // is a whole number), or a map's value at a key.
+//
+//go:noinline
 func index(c, i Value) Value {
 	switch c.k {
 	case ListKind:
@@ -479,6 +543,8 @@ func index(c, i Value) Value {
 }
 
 // formatKey writes a map key for an error.
+//
+//go:noinline
 func formatKey(k Value) string {
 	switch k.k {
 	case StringKind:
@@ -498,6 +564,8 @@ func formatKey(k Value) string {
 // equal is CEL's ==: numbers compare across int, uint and double, NaN
 // equals nothing, lists and maps compare their elements, and values of
 // different kinds are not equal.
+//
+//go:noinline
 func equal(l, r Value) bool {
 	switch l.k {
 	case NullKind:
@@ -646,6 +714,8 @@ func compareIntUint(i int64, u uint64) int {
 
 // relate is <, <=, > or >= (fn) on two values: false when either is NaN,
 // as in cel-go, and an error when they don't compare.
+//
+//go:noinline
 func relate(l, r Value, fn string, test func(int) bool) Value {
 	if isNaN(l) || isNaN(r) {
 		return BoolValue(false)
@@ -681,6 +751,8 @@ func relate(l, r Value, fn string, test func(int) bool) Value {
 func isNaN(v Value) bool { return v.k == DoubleKind && math.IsNaN(math.Float64frombits(v.n)) }
 
 // in is l in r: an element of a list equal to l, or a key of a map.
+//
+//go:noinline
 func in(l, r Value) Value {
 	switch r.k {
 	case ListKind:

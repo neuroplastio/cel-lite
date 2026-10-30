@@ -19,19 +19,30 @@
 //
 // # Meaning
 //
-// An expression means what it means in cel-go (v0.32), which the oracle
-// module's tests compare it with, or it is refused when it is compiled,
-// with an *Error of kind Unsupported that names what is missing:
-// timestamps and durations, regular expressions, macros (all, exists,
-// map, filter), type values, message construction and optional syntax.
-// cel-go types a value read with [] from a dyn (`x['k']`) with a type
-// parameter that its first use binds, so that `-x['k']` is a double and
-// `int(x['k'])` takes only an int; Check refuses such a use by name, and
-// x.k or dyn(x['k']) keeps the value dyn.
+// An expression means what CEL's language definition says it means, and
+// what it means in cel-go (v0.32), which the oracle module's tests
+// compare it with. Or it is refused when it is compiled, with an *Error of
+// kind Unsupported that names what is missing: timestamps and durations,
+// regular expressions, macros (all, exists, map, filter), type values,
+// message construction and optional syntax.
 //
-// A map literal whose key turns out, when evaluated, to be anything but a
-// bool, an int, a uint or a string is an error, as the CEL spec has it;
-// cel-go builds the map.
+// # Where cel-lite and cel-go differ
+//
+// Where cel-go strays from the language definition, cel-lite follows the
+// definition, or refuses by name:
+//
+//   - cel-go types a value read with [] from a dyn (`x['k']`, or an
+//     element of an empty literal) with a type parameter that its first
+//     use binds: `-x['k']` is a double there, `[x['k'], 'a']` a
+//     list(string), `-x['k'] + 1` is refused, and `int(x['k'])` takes
+//     only an int when it runs. In the definition the value is dyn. Check
+//     refuses such a use (Unsupported, "inferred type"); x.k or
+//     dyn(x['k']) keeps the value dyn.
+//   - A map's keys are bool, int, uint or string (the definition's
+//     Values). A map literal whose dyn key turns out a double, a list or a
+//     map is an error when it runs; cel-go builds the map, where a NaN key
+//     is never found and two NaN keys are two entries.
+//   - cel-lite's limits are lower than cel-go's (Limits).
 //
 // # Values
 //
@@ -44,7 +55,12 @@
 // # Limits
 //
 // Nothing here panics on any input, since recover doesn't work under
-// TinyGo's wasm: an expression nests at most MaxDepth deep and is at most
-// MaxSize bytes, which keeps recursion within TinyGo's 64 KB stacks.
-// Integers are int64 and uint64 everywhere, and overflow is an error.
+// TinyGo's wasm. An expression is at most MaxSize bytes, its tree at most
+// MaxDepth (50) deep, and its brackets, calls and conditionals nest at
+// most 16 deep. Within those limits the parser, the checker, the planner
+// and the evaluator each need at most 14.4 KB of stack under TinyGo 0.42
+// on wasm (`make stack` measures it, against a budget of 16 KB), which
+// leaves most of a TinyGo goroutine's fixed 64 KB to the program around
+// them; the gate runs every test on a 32 KB stack. Integers are int64 and
+// uint64 everywhere, and overflow is an error.
 package cellite

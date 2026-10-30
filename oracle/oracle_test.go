@@ -176,8 +176,9 @@ func (w *world) celEval(prg cel.Program, b binding) (o outcome) {
 // differ, or "" when they agree. A cellite refusal by name agrees with
 // anything, and so does one of its depth limits. So does its run-time
 // "invalid map key type": a map literal whose dyn key turns out a double,
-// a list or a map. The CEL spec allows no such key; cel-go builds the
-// map, where no lookup finds a NaN key, or a list.
+// a list or a map. CEL's language definition (langdef.md, Values) allows
+// map keys of int, uint, bool and string only, and cel-lite follows it;
+// cel-go builds the map, where no lookup finds a NaN key, or a list.
 func (w *world) compare(src string, bs []binding) string {
 	lp, lo := w.liteCompile(src)
 	cp, co := w.celCompile(src)

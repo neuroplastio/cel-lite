@@ -514,6 +514,7 @@ func newValueMap(n int) *valueMap {
 	return &valueMap{keys: make([]Value, 0, n), vals: make([]Value, 0, n), index: make(map[mapKey]int, n)}
 }
 
+//go:noinline
 func (m *valueMap) put(k, v Value) {
 	mk := keyOfValue(k)
 	if i, ok := m.index[mk]; ok {
@@ -542,6 +543,8 @@ func (m *valueMap) Range(f func(k, v Value) bool) {
 
 // mapGet looks key up in m as CEL does: the key itself, then, for a
 // number, the int, uint or double equal to it.
+//
+//go:noinline
 func mapGet(m Map, key Value) (Value, bool) {
 	if v, ok := m.Get(key); ok {
 		return v, true

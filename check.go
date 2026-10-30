@@ -1,6 +1,9 @@
 package cellite
 
-import "strings"
+import (
+	"strconv"
+	"strings"
+)
 
 // Check resolves a parsed expression's names in the Env and types every
 // node, as cel-go's checker does, and returns the checked tree, a new
@@ -9,6 +12,9 @@ import "strings"
 // (*Error). Check has no source, so the Error's Line and Col are 0;
 // Compile fills them in.
 func (e *Env) Check(x *Expr) (*Expr, error) {
+	if tooDeep(x, 1) {
+		return nil, &Error{Kind: SyntaxError, Pos: x.Pos, Msg: "expression is nested deeper than " + strconv.Itoa(MaxDepth)}
+	}
 	c := &checker{env: e}
 	y := c.check(x)
 	if c.err != nil {
@@ -16,6 +22,21 @@ func (e *Env) Check(x *Expr) (*Expr, error) {
 	}
 	settleTree(y)
 	return y, nil
+}
+
+// tooDeep reports whether a tree, at depth d, goes deeper than MaxDepth:
+// Parse makes none, but a program may build one. It recurses no further
+// than MaxDepth.
+func tooDeep(x *Expr, d int) bool {
+	if d > MaxDepth {
+		return true
+	}
+	for _, a := range x.Args {
+		if tooDeep(a, d+1) {
+			return true
+		}
+	}
+	return false
 }
 
 // checker checks one expression; the first error stops it.
@@ -59,12 +80,24 @@ func typeList(args []*Expr) string {
 	return strings.Join(ts, ", ")
 }
 
+// check checks x's operands, then x. It and selectField are all the
+// checker recurses through, and they keep their frames small: typed, not
+// inlined, types each node once its operands are checked, since a TinyGo
+// goroutine's stack is 64 KB and a function's frame has room for all its
+// cases' temporaries.
 func (c *checker) check(x *Expr) *Expr {
+	probe()
 	if c.err != nil || x == nil {
 		return nil
 	}
+	switch x.Op {
+	case OpIdent, OpVar:
+		return c.ident(x)
+	case OpSelect:
+		return c.selectField(x)
+	}
 	y := &Expr{Op: x.Op, Pos: x.Pos, Value: x.Value, Name: x.Name, Member: x.Member}
-	if len(x.Args) > 0 && x.Op != OpSelect && x.Op != OpCall {
+	if len(x.Args) > 0 {
 		y.Args = make([]*Expr, len(x.Args))
 		for i, a := range x.Args {
 			if y.Args[i] = c.check(a); c.err != nil {
@@ -72,6 +105,13 @@ func (c *checker) check(x *Expr) *Expr {
 			}
 		}
 	}
+	return c.typed(x, y)
+}
+
+// typed types y, x checked, whose operands are.
+//
+//go:noinline
+func (c *checker) typed(x, y *Expr) *Expr {
 	switch x.Op {
 	case OpLit:
 		switch x.Value.(type) {
@@ -92,10 +132,6 @@ func (c *checker) check(x *Expr) *Expr {
 		default:
 			return c.fail(x.Pos, TypeError, "", "a literal's value is nil, a bool, an int64, a uint64, a float64, a string or []byte")
 		}
-	case OpIdent, OpVar:
-		return c.ident(x)
-	case OpSelect:
-		return c.selectField(x)
 	case OpHas:
 		t := y.Args[0].Type
 		switch {
@@ -136,7 +172,7 @@ func (c *checker) check(x *Expr) *Expr {
 			y.Type = param
 		}
 	case OpCall:
-		return c.call(x)
+		return c.call(x, y)
 	case OpCond:
 		cond, t, f := y.Args[0], y.Args[1], y.Args[2]
 		if !assignable(Bool, cond.Type) || !assignable(t.Type, f.Type) {
@@ -357,6 +393,13 @@ func (c *checker) selectField(x *Expr) *Expr {
 	if c.err != nil {
 		return nil
 	}
+	return c.selectType(x, op)
+}
+
+// selectType types the selection x of op, checked.
+//
+//go:noinline
+func (c *checker) selectType(x, op *Expr) *Expr {
 	y := &Expr{Op: OpSelect, Pos: x.Pos, Name: x.Name, Args: []*Expr{op}}
 	switch t := op.Type; {
 	case t.Kind == MapKind:
@@ -515,14 +558,9 @@ var refused = map[string]string{
 	"duration":  "durations are not supported",
 }
 
-// call checks a call: a standard function, a refused one, or a helper.
-func (c *checker) call(x *Expr) *Expr {
-	y := &Expr{Op: OpCall, Pos: x.Pos, Name: x.Name, Member: x.Member, Args: make([]*Expr, len(x.Args))}
-	for i, a := range x.Args {
-		if y.Args[i] = c.check(a); c.err != nil {
-			return nil
-		}
-	}
+// call types a call, y, whose arguments are checked: a standard
+// function, a refused one, or a helper.
+func (c *checker) call(x, y *Expr) *Expr {
 	if why, ok := refused[x.Name]; ok {
 		return c.fail(x.Pos, Unsupported, "function "+x.Name, why)
 	}

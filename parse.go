@@ -7,19 +7,23 @@ import (
 )
 
 // Limits on what Parse reads. cel-go has its own (100,000 code points, a
-// parse depth of 250), and a deeper expression than these is refused
-// rather than read: the checker and the evaluator recurse once per level,
-// and TinyGo's WebAssembly builds run them on a 64 KB stack.
+// parse depth of 250); these are lower, and a deeper expression is
+// refused rather than read. The parser, the checker, the planner and the
+// evaluator recurse once per level, and a TinyGo goroutine's stack is a
+// fixed 64 KB, which an overflow corrupts silently: the limits keep each
+// of them within 16 KB there, as `make stack` measures and the gate
+// checks (stack_test.go). Raise one only with a new measurement.
 const (
 	// MaxSize is the longest source Parse reads, in bytes.
 	MaxSize = 100_000
 	// MaxDepth is how deep an expression's tree may be. && and || chains
 	// are built balanced, as cel-go builds them, so a long chain is
-	// shallow.
-	MaxDepth = 100
+	// shallow; `a + b + c` chains are not.
+	MaxDepth = 50
 	// maxNest is how deeply brackets, calls and conditionals may nest:
-	// each level is a few of the parser's own frames.
-	maxNest = 32
+	// each level is nine of the parser's own frames, about 1 KB under
+	// TinyGo.
+	maxNest = 16
 )
 
 // reserved are the words CEL keeps from identifiers (cel-go's
@@ -101,6 +105,8 @@ func (p *parser) peek() token {
 }
 
 // fail records the first error.
+//
+//go:noinline
 func (p *parser) fail(pos int, kind ErrorKind, name, msg string) {
 	if p.err == nil {
 		p.err = newError(p.src, pos, kind, name, msg)
@@ -114,6 +120,8 @@ func (p *parser) syntax(pos int, msg string) { p.fail(pos, SyntaxError, "", "syn
 func (p *parser) unsupported(pos int, name, msg string) { p.fail(pos, Unsupported, name, msg) }
 
 // unexpected is a syntax error at the current token.
+//
+//go:noinline
 func (p *parser) unexpected() {
 	t := p.tok
 	switch {
@@ -149,7 +157,10 @@ func (p *parser) expect(k tokKind) bool {
 }
 
 // node makes a node and checks MaxDepth.
+//
+//go:noinline
 func (p *parser) node(op Op, pos int, args ...*Expr) *Expr {
+	probe()
 	x := &Expr{Op: op, Pos: pos, Args: args}
 	d := 1
 	for _, a := range args {
@@ -171,14 +182,19 @@ func (p *parser) expr() *Expr {
 		p.fail(p.tok.pos, SyntaxError, "", "expression nests deeper than "+strconv.Itoa(maxNest))
 		return nil
 	}
-	defer func() { p.nest-- }()
-	c := p.chain(tOr, OpOr)
+	x := p.cond()
+	p.nest--
+	return x
+}
+
+func (p *parser) cond() *Expr {
+	c := p.binary(precOr)
 	if p.err != nil || p.tok.kind != tQuestion {
 		return c
 	}
 	pos := p.tok.pos
 	p.next()
-	t := p.chain(tOr, OpOr)
+	t := p.binary(precOr)
 	if !p.expect(tColon) {
 		return nil
 	}
@@ -189,33 +205,100 @@ func (p *parser) expr() *Expr {
 	return p.node(OpCond, pos, c, t, f)
 }
 
-// chain reads a || chain (tok tOr) of && chains, or an && chain (tAnd)
-// of relations, and builds it balanced, as cel-go does.
-func (p *parser) chain(tok tokKind, op Op) *Expr {
-	term := func() *Expr {
-		if tok == tOr {
-			return p.chain(tAnd, OpAnd)
-		}
-		return p.relation()
+// The binary operators' precedences, as CEL.g4's rules nest them.
+const (
+	precOr = 1 + iota
+	precAnd
+	precRelation
+	precAdditive
+	precMultiplicative
+)
+
+// binOp is the precedence and the node of the binary operator tok, or 0
+// when tok is none.
+func binOp(tok tokKind) (int, Op) {
+	switch tok {
+	case tOr:
+		return precOr, OpOr
+	case tAnd:
+		return precAnd, OpAnd
+	case tLt:
+		return precRelation, OpLt
+	case tLe:
+		return precRelation, OpLe
+	case tGt:
+		return precRelation, OpGt
+	case tGe:
+		return precRelation, OpGe
+	case tEq:
+		return precRelation, OpEq
+	case tNe:
+		return precRelation, OpNe
+	case tIn:
+		return precRelation, OpIn
+	case tPlus:
+		return precAdditive, OpAdd
+	case tMinus:
+		return precAdditive, OpSub
+	case tStar:
+		return precMultiplicative, OpMul
+	case tSlash:
+		return precMultiplicative, OpDiv
+	case tPercent:
+		return precMultiplicative, OpMod
 	}
-	terms := []*Expr{term()}
-	var pos []int
-	for p.err == nil && p.tok.kind == tok {
-		pos = append(pos, p.tok.pos)
+	return 0, 0
+}
+
+// binary reads CEL.g4's conditionalOr down to multiplication, the
+// operators of precedence prec and above, by precedence climbing: one
+// frame for all five rules, which keeps the parser's recursion shallow.
+// Relations and arithmetic fold to the left. A run of && or || is built
+// balanced, as cel-go builds it; within one call the operators come in
+// falling precedence, so an && run is done when || follows.
+func (p *parser) binary(prec int) *Expr {
+	x := p.unary()
+	var (
+		run   Op // the && or || of the run, if one is open
+		terms []*Expr
+		pos   []int
+	)
+	for p.err == nil {
+		bp, op := binOp(p.tok.kind)
+		if bp < prec || bp == 0 {
+			break
+		}
+		at := p.tok.pos
 		p.next()
-		terms = append(terms, term())
+		y := p.binary(bp + 1)
+		if p.err != nil {
+			return nil
+		}
+		switch {
+		case op != OpAnd && op != OpOr:
+			x = p.node(op, at, x, y)
+		case op == run:
+			terms, pos = append(terms, y), append(pos, at)
+		default:
+			if run != 0 {
+				x = p.balance(run, terms, pos, 0, len(pos)-1)
+			}
+			run, terms, pos = op, []*Expr{x, y}, []int{at}
+		}
 	}
 	if p.err != nil {
 		return nil
 	}
-	if len(terms) == 1 {
-		return terms[0]
+	if run != 0 {
+		x = p.balance(run, terms, pos, 0, len(pos)-1)
 	}
-	return p.balance(op, terms, pos, 0, len(pos)-1)
+	return x
 }
 
 // balance builds the operators pos[lo..hi] and the terms around them
 // into a balanced tree of op: cel-go's balancer, the same shape.
+//
+//go:noinline
 func (p *parser) balance(op Op, terms []*Expr, pos []int, lo, hi int) *Expr {
 	mid := (lo + hi + 1) / 2
 	left := terms[mid]
@@ -227,64 +310,6 @@ func (p *parser) balance(op Op, terms []*Expr, pos []int, lo, hi int) *Expr {
 		right = p.balance(op, terms, pos, mid+1, hi)
 	}
 	return p.node(op, pos[mid], left, right)
-}
-
-// relOps are the relations, all of one precedence, left to right.
-var relOps = map[tokKind]Op{tLt: OpLt, tLe: OpLe, tGt: OpGt, tGe: OpGe, tEq: OpEq, tNe: OpNe, tIn: OpIn}
-
-func (p *parser) relation() *Expr {
-	x := p.additive()
-	for p.err == nil {
-		op, ok := relOps[p.tok.kind]
-		if !ok {
-			break
-		}
-		pos := p.tok.pos
-		p.next()
-		y := p.additive()
-		if p.err != nil {
-			return nil
-		}
-		x = p.node(op, pos, x, y)
-	}
-	return x
-}
-
-func (p *parser) additive() *Expr {
-	x := p.multiplicative()
-	for p.err == nil && (p.tok.kind == tPlus || p.tok.kind == tMinus) {
-		op, pos := OpAdd, p.tok.pos
-		if p.tok.kind == tMinus {
-			op = OpSub
-		}
-		p.next()
-		y := p.multiplicative()
-		if p.err != nil {
-			return nil
-		}
-		x = p.node(op, pos, x, y)
-	}
-	return x
-}
-
-func (p *parser) multiplicative() *Expr {
-	x := p.unary()
-	for p.err == nil && (p.tok.kind == tStar || p.tok.kind == tSlash || p.tok.kind == tPercent) {
-		op, pos := OpMul, p.tok.pos
-		switch p.tok.kind {
-		case tSlash:
-			op = OpDiv
-		case tPercent:
-			op = OpMod
-		}
-		p.next()
-		y := p.unary()
-		if p.err != nil {
-			return nil
-		}
-		x = p.node(op, pos, x, y)
-	}
-	return x
 }
 
 // unary is CEL.g4's unary: a member, or a run of `!` or a run of `-`
@@ -395,6 +420,8 @@ func (p *parser) args() []*Expr {
 // call makes a call node, or refuses a macro: target is the receiver of
 // a method call, nil for a global one. has(x.f) is a macro, kept as
 // OpHas.
+//
+//go:noinline
 func (p *parser) call(pos int, name string, target *Expr, args []*Expr) *Expr {
 	if target == nil && name == "has" && len(args) == 1 {
 		a := args[0]
@@ -536,6 +563,8 @@ func (p *parser) mapLit() *Expr {
 }
 
 // literal reads the literal at the current token, with sign "-" or "".
+//
+//go:noinline
 func (p *parser) literal(pos int, sign string) *Expr {
 	t := p.tok
 	p.next()
@@ -596,6 +625,8 @@ func (p *parser) literal(pos int, sign string) *Expr {
 // into its value, as cel-go's unescape: line breaks are normalized to \n,
 // \x and octal escapes are code points in a string and bytes in bytes,
 // and \u and \U are refused in bytes. The error is "" when it reads.
+//
+//go:noinline
 func unescape(lit string, bytes bool) (string, string) {
 	lit = strings.ReplaceAll(strings.ReplaceAll(lit, "\r\n", "\n"), "\r", "\n")
 	raw := false
