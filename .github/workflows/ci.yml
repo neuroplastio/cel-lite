@@ -1,0 +1,43 @@
+# CI: cel-lite's gate, scripts/check.sh (what `make check` runs), on every
+# push to main and every pull request: gofmt, vet and the tests; the
+# standard library alone; every test built and run under TinyGo's wasm on
+# a 32 KB stack, and the stack budget; Go's js/wasm; and the comparison
+# with cel-go in oracle/.
+#
+# It runs on GitHub's runners only, and only while the repository is
+# public: the organization's free minutes for private repositories are
+# spent, and there is no self-hosted runner.
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    name: check
+    if: ${{ !github.event.repository.private }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      # Go and TinyGo at the versions mise.toml pins.
+      - uses: jdx/mise-action@v4
+
+      - run: ./scripts/check.sh
+
+      # The oldest Go an importer may build with: go.mod's go directive.
+      - name: Go at go.mod's floor
+        run: |
+          export GOTOOLCHAIN=go$(go list -m -f '{{.GoVersion}}')
+          go vet .
+          go test .
