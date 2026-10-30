@@ -69,9 +69,10 @@ walks through each.
 | Evaluate it           | 14–116 ns, no allocations         | 45–430 ns, up to 7 allocations |
 
 The sizes and dependencies are those of one small program, which
-compiles and tests one expression, built with `-trimpath -ldflags='-s -w'` by Go 1.26 and with
-`-no-debug` by TinyGo 0.42. A program that prints hello is 1.6 MB, or
-2.6 MB in js/wasm, so most of cel-lite's column is Go's own runtime.
+compiles and tests one expression, built with `-trimpath -ldflags='-s -w'`
+by Go 1.26 and with `-no-debug` by TinyGo 0.42. A program that prints
+hello is 1.6 MB, or 2.6 MB in js/wasm, so most of cel-lite's column is
+Go's own runtime.
 Under TinyGo, cel-go builds but stops at start-up on reflection TinyGo
 doesn't implement. The times are the benchmarks'
 [medians](docs/performance.md); evaluating allocates only to build a
