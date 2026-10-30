@@ -55,3 +55,14 @@ chunks, sized by the tokens (Parse) or the tree (Check), not one
 allocation a node. A program may change a node or give it new Args;
 an Args slice has no room past its end, so appending to it copies. A
 node kept keeps its chunk.
+
+## D8: A variable may take a type's name (2026-10-30)
+
+cel-go lets a variable take any of CEL's type names (`list`, `int`,
+`type`, `null_type`, …), and the variable wins: with `list` declared,
+`list` reads it. cel-lite does the same, since programs declare names
+they don't choose (a keymap's node `list`). Reserved words stay refused,
+and structs and helpers still can't take a type's name. When the
+variable is absent, cel-go reads the type instead, which the checked
+type doesn't allow; cel-lite reports the variable missing (D2: doc.go
+lists it, the oracle leaves it out by name) (gov).

@@ -42,6 +42,11 @@
 //     Values). A map literal whose dyn key turns out a double, a list or a
 //     map is an error when it runs; cel-go builds the map, where a NaN key
 //     is never found and two NaN keys are two entries.
+//   - A variable may take a type's name (`list`, `int`), and the name
+//     then reads the variable. When the variable is absent, cel-go reads
+//     the type instead, a value the expression's checked type doesn't
+//     allow: `list` declared a bool gives the type list. cel-lite reports
+//     the variable missing, as for any other name.
 //   - cel-lite's limits are lower than cel-go's (Limits).
 //
 // # Values

@@ -41,7 +41,7 @@ func (l items) At(i int) Value { return ObjectValue("Item", l[i]) }
 
 var errHelper = errors.New("helper failed")
 
-func testEnv(t *testing.T) *Env {
+func testEnv(t testing.TB) *Env {
 	t.Helper()
 	env, err := NewEnv(Decls{
 		Structs: []Struct{{Name: "Item", Fields: []Field{
@@ -339,7 +339,8 @@ func TestNewEnvErrors(t *testing.T) {
 	}
 }
 
-// TestNames checks that the names CEL keeps are the ones NewEnv refuses.
+// TestNames checks that the names CEL keeps are the ones NewEnv refuses,
+// and that a variable may take a type's name and win over the type.
 func TestNames(t *testing.T) {
 	helper := func(name string) Decls {
 		return Decls{Funcs: []Func{{Name: name, Overloads: []Overload{{ID: "h", Args: []Type{Int}, Result: Int,
@@ -358,6 +359,21 @@ func TestNames(t *testing.T) {
 	for _, name := range ReservedWords() {
 		if _, err := NewEnv(Decls{Vars: []Var{{Name: name, Type: Int}}}); err == nil {
 			t.Errorf("a variable named %q is accepted", name)
+		}
+	}
+	for _, name := range TypeNames() {
+		env, err := NewEnv(Decls{Vars: []Var{{Name: name, Type: Int}}})
+		if err != nil {
+			t.Errorf("a variable named %q: %v", name, err)
+			continue
+		}
+		p, err := env.Compile(name + " + 1")
+		if err != nil {
+			t.Errorf("%s + 1: %v", name, err)
+			continue
+		}
+		if v, err := p.Eval(env.Activation(map[string]any{name: 2})); err != nil || v.Int() != 3 {
+			t.Errorf("%s + 1 = %v, %v; want 3", name, v.Interface(), err)
 		}
 	}
 	ReservedWords()[0] = "x"

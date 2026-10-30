@@ -10,8 +10,9 @@ import "sort"
 // struct or helper takes one as its name. A field may: `x.if`.
 func ReservedWords() []string { return sortedKeys(reserved) }
 
-// TypeNames are the names CEL gives its types: no variable, struct or
-// helper takes one as its name.
+// TypeNames are the names CEL gives its types: no struct or helper takes
+// one as its name. A variable may, and then the name reads the variable,
+// as in cel-go.
 func TypeNames() []string { return sortedKeys(typeNames) }
 
 // StandardFunctions are the functions and macros of CEL's standard

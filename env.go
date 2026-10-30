@@ -73,7 +73,8 @@ type structInfo struct {
 }
 
 // typeNames are the names CEL gives its types: an identifier that is one
-// is a type value, which this package doesn't implement.
+// is a type value, which this package doesn't implement, unless a
+// variable takes the name.
 var typeNames = map[string]bool{
 	"bool": true, "bytes": true, "double": true, "dyn": true, "int": true, "list": true, "map": true,
 	"null_type": true, "string": true, "type": true, "uint": true,
@@ -93,9 +94,11 @@ var standard = map[string]bool{
 }
 
 // NewEnv reads a program's declarations. A name that isn't an identifier
-// (a variable's may be qualified), a reserved word, a type's name, a name
-// declared twice, a type that names an undeclared struct, a helper named
-// as a standard function, and an overload ID used twice are errors.
+// (a variable's may be qualified), a reserved word, a struct or helper
+// named as a type, a name declared twice, a type that names an undeclared
+// struct, a helper named as a standard function, and an overload ID used
+// twice are errors. A variable may take a type's name, as in cel-go: the
+// variable wins, so with `list` declared, `list` reads it.
 func NewEnv(d Decls) (*Env, error) {
 	e := &Env{varIdx: map[string]int{}, structs: map[string]*structInfo{}, funcs: map[string]*Func{}}
 	for _, s := range d.Structs {
@@ -134,7 +137,7 @@ func NewEnv(d Decls) (*Env, error) {
 				return nil, declError("variable", v.Name, "not a (qualified) identifier")
 			}
 		}
-		if reserved[first] || typeNames[v.Name] {
+		if reserved[first] {
 			return nil, declError("variable", v.Name, "the name is reserved")
 		}
 		if _, dup := e.varIdx[v.Name]; dup {

@@ -4,6 +4,8 @@ import (
 	"flag"
 	"math/rand/v2"
 	"testing"
+
+	"github.com/neuroplastio/cel-lite"
 )
 
 // corpus are expressions picked for their corners: the parser's (signs,
@@ -85,6 +87,61 @@ func TestOracleCorpus(t *testing.T) {
 	g := &gen{r: rand.New(rand.NewPCG(1, 2))}
 	bs := []binding{g.binding(), g.binding(), g.binding(), g.binding(), {vals: map[string]any{}}}
 	for _, src := range corpus {
+		if diff := w.compare(src, bs); diff != "" {
+			t.Errorf("%s\n\t%s", src, diff)
+		}
+	}
+}
+
+// typeNameDecls name variables after CEL's types, which cel-go allows:
+// the variable wins over the type.
+var typeNameDecls = []decl{
+	{"list", cellite.Bool}, {"list.dir", cellite.String}, {"int", cellite.Int}, {"dyn", cellite.Dyn},
+	{"type", cellite.String}, {"map", cellite.MapOf(cellite.String, cellite.String)},
+	{"null_type", cellite.Int}, {"google.protobuf.Timestamp", cellite.Int},
+}
+
+// typeNameCorpus are read with typeNameDecls, and cellite compiles each.
+var typeNameCorpus = []string{
+	`list`, `list && true`, `.list`, `!list`, `list.dir == 'x'`, `list ? list.dir : ''`, `.list.dir`,
+	`int + 1`, `int(int)`, `int(dyn)`, `dyn(int)`, `[int, 2]`, `{'a': int}`, `.int`, `-int`,
+	`dyn`, `dyn == 1`, `[dyn]`, `map.a`, `map['a']`, `'a' in map`, `has(map.a)`, `size(map)`,
+	`type == 'x'`, `type.size()`, `type + type`, `null_type + 1`, `null_type == null_type`,
+	`google.protobuf.Timestamp + 1`, `.google.protobuf.Timestamp`,
+}
+
+// TestOracleTypeNames compares typeNameCorpus, each on random bindings
+// and with every variable unknown. A refusal agrees with anything in
+// compare, so the test checks that cellite compiles each expression. It
+// leaves out the variables' absence by name: cel-go then reads the type
+// named, `list` declared a bool giving the type list, where cellite
+// reports the variable missing (doc.go, "Where cel-lite and cel-go
+// differ").
+func TestOracleTypeNames(t *testing.T) {
+	w := newWorld(t, typeNameDecls)
+	g := &gen{r: rand.New(rand.NewPCG(5, 6))}
+	var bs []binding
+	for range 4 {
+		b := binding{vals: map[string]any{}}
+		for _, d := range typeNameDecls {
+			b.vals[d.name] = g.value(d.typ)
+		}
+		bs = append(bs, b)
+	}
+	unknown := binding{vals: map[string]any{}}
+	for _, d := range typeNameDecls {
+		unknown.unknown = append(unknown.unknown, d.name)
+	}
+	bs = append(bs, unknown)
+	for _, src := range typeNameCorpus {
+		p, err := w.lite.Compile(src)
+		if err != nil {
+			t.Errorf("%s: %v", src, err)
+			continue
+		}
+		if o := w.liteEval(p, binding{vals: map[string]any{}}); o.kind != "error" {
+			t.Errorf("%s with nothing bound: %s, want an error", src, o)
+		}
 		if diff := w.compare(src, bs); diff != "" {
 			t.Errorf("%s\n\t%s", src, diff)
 		}
