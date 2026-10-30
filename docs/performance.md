@@ -8,9 +8,9 @@ description: the benchmarks against cel-go, how they were measured, and how to r
 # Performance
 
 cel-lite compiles an expression in one or two microseconds and evaluates
-it in tens of nanoseconds, without allocating. The benchmarks below run
-the same expressions through cel-lite, under Go and under TinyGo, and
-through cel-go.
+it in tens of nanoseconds, allocating nothing unless it builds a string
+or calls a helper. The benchmarks below run the same expressions through
+cel-lite, under Go and under TinyGo, and through cel-go.
 
 ## The expressions
 

@@ -23,7 +23,8 @@ programs that would rather generate code from an expression than run it.
   js/wasm. Each phase stays within a measured 13.2 KB of stack, so it fits
   TinyGo's fixed goroutine stacks, and nothing panics on any input.
 - **Fast.** Compiling an expression takes one or two microseconds, and
-  evaluating it takes tens of nanoseconds, without allocating.
+  evaluating it takes tens of nanoseconds, allocating nothing unless it
+  builds a string or calls a helper.
 
 ## Install
 
@@ -66,15 +67,14 @@ walks through each.
 | Go, js/wasm           | 3.1 MB                            | 20.7 MB                        |
 | TinyGo, wasm          | 193 KB                            | 3.3 MB, panics as it starts    |
 | Compile an expression | 0.2–2 µs, 5–22 allocations        | 7–33 µs, 120–400 allocations   |
-| Evaluate it           | 14–116 ns, no allocations         | 45–430 ns, up to 7 allocations |
+| Evaluate it           | 14–116 ns, up to 2 allocations    | 45–430 ns, up to 7 allocations |
 
 The sizes and dependencies are those of one small program, which
 compiles and tests one expression, built with `-trimpath -ldflags='-s -w'`
 by Go 1.26 and with `-no-debug` by TinyGo 0.42. A program that prints
 hello is 1.6 MB, or 2.6 MB in js/wasm, so most of cel-lite's column is
-Go's own runtime.
-Under TinyGo, cel-go builds but stops at start-up on reflection TinyGo
-doesn't implement. The times are the benchmarks'
+Go's own runtime. Under TinyGo, cel-go builds but stops at start-up on
+reflection TinyGo doesn't implement. The times are the benchmarks'
 [medians](docs/performance.md); evaluating allocates only to build a
 string or to call a helper.
 

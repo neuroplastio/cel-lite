@@ -48,8 +48,10 @@ easy to rename (one module path, one package name, `cellite`).
 - **Benchmarks hold the feel lock** (`flock ~/.cache/hotty/sway-feel/lock …`)
   and stay short; other sessions queue on it. No artificial load.
 - **Nothing private.** No data from private repositories goes into this
-  one: the oracle reads keymap contexts from sibling checkouts at test time
-  and skips when they are missing.
+  one: the oracle reads keymap contexts at test time, kubecom's from its
+  checkout beside this one and any others (plx's) from the globs in
+  CELLITE_KEYMAPS, and skips when it finds none. A private repository's
+  paths stay out of the tree.
 - **Publishing is the maintainer's.** No push, no tag and no release
   without the maintainer's go-ahead.
 

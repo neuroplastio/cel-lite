@@ -12,14 +12,17 @@ import (
 	"github.com/neuroplastio/cel-lite"
 )
 
-// keymapFiles are where keymaps with CEL contexts live, in the checkouts
-// beside this one (neuroplastio/<repo>/main). They are read as data when
-// the test runs; nothing of them is kept here.
+// keymapFiles are where kubecom's keymaps live, with their CEL contexts,
+// in its checkout beside this one (neuroplastio/kubecom/main). They are
+// read as data when the test runs; nothing of them is kept here.
 var keymapFiles = []string{
-	"kubecom/main/internal/tui/keymap/*.kdl",
-	"plx/main/cmd/plx/internal/keybind/defaults/*.kdl",
-	"plx/main/cmd/plx/internal/tui/leader/testdata/*.kdl",
+	"../../../kubecom/main/internal/tui/keymap/*.kdl",
 }
+
+// keymapsEnv names more keymaps to read: globs in a list as the OS joins
+// paths (colon-separated on Unix), each absolute or relative to this
+// directory.
+const keymapsEnv = "CELLITE_KEYMAPS"
 
 // contextRe finds a KDL node's context or when string.
 var contextRe = regexp.MustCompile(`\b(?:context|when)\s+"((?:[^"\\]|\\.)*)"`)
@@ -31,13 +34,13 @@ var contextRe = regexp.MustCompile(`\b(?:context|when)\s+"((?:[^"\\]|\\.)*)"`)
 // a bool.
 func TestOracleKeymaps(t *testing.T) {
 	var files []string
-	for _, pat := range keymapFiles {
-		m, _ := filepath.Glob(filepath.Join("..", "..", "..", pat))
+	for _, pat := range append(keymapFiles, filepath.SplitList(os.Getenv(keymapsEnv))...) {
+		m, _ := filepath.Glob(filepath.FromSlash(pat))
 		files = append(files, m...)
 	}
 	if len(files) == 0 {
-		t.Skip("no keymaps to read: the test reads kubecom's and plx's .kdl keymaps " +
-			"from their checkouts beside this one (../../../<repo>/main), which this clone hasn't")
+		t.Skip("no keymaps to read: the test reads kubecom's .kdl keymaps from its checkout " +
+			"beside this one (../../../kubecom/main), and those " + keymapsEnv + " names")
 	}
 	seen := map[string]bool{}
 	var srcs []string
