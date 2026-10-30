@@ -13,8 +13,10 @@ check:
 stack:
 	tinygo test -p 2 -tags cellitestack -target wasm -stack-size=1MB -run TestStackUse -v .
 
-# Compare with cel-go on fuzzed expressions and sources, one worker each.
+# Hand-built trees, then cel-go against fuzzed expressions and sources, one
+# worker each.
 fuzz:
+	$(GO) test -run '^$$' -fuzz '^FuzzTrees$$' -fuzztime 60s -fuzzminimizetime 5s -parallel 1 .
 	$(GO) -C oracle test -run '^$$' -fuzz '^FuzzGenerated$$' -fuzztime 60s -fuzzminimizetime 5s -parallel 1 .
 	$(GO) -C oracle test -run '^$$' -fuzz '^FuzzSource$$' -fuzztime 60s -fuzzminimizetime 5s -parallel 1 .
 

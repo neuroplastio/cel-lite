@@ -27,7 +27,8 @@ easy to rename (one module path, one package name, `cellite`).
 - **The root module requires nothing.** cel-go lives only in `oracle/`, a
   module of its own, and is linked into no binary. The gate checks it.
 - **Nothing panics, on any input.** `recover` doesn't work under TinyGo's
-  wasm. The fuzzers in `oracle/` run against cel-go.
+  wasm. FuzzTrees hands Check and Program trees built by hand, and the
+  fuzzers in `oracle/` run against cel-go.
 - **The limits are measured, not chosen** (D5). Each phase (parse, check,
   plan, eval) stays within 16 KB of stack under TinyGo at the limits:
   `make stack` measures it, TestStackUse fails past the budget, and the
