@@ -55,7 +55,9 @@ const (
 
 // Expr is a node of an expression: what Parse reads and Check types. It
 // is plain data, so a program that generates code from an expression
-// walks it with a switch on Op.
+// walks it with a switch on Op. Parse and Check make a tree's nodes in a
+// few chunks: a program may change a node or give it new Args, and
+// appending to a node's Args copies them.
 type Expr struct {
 	Op Op
 	// Pos is the node's byte offset in the source: an operator's for an
@@ -82,4 +84,53 @@ type Expr struct {
 	Member bool
 	// Args are the node's operands, in the order its Op gives.
 	Args []*Expr
+}
+
+// nodes hands out a tree's nodes and operand lists from chunks, so that
+// Parse and Check make a few allocations for a tree, not two a node. A
+// chunk is never grown in place, so a node keeps its address; a list
+// handed out has no room past its end, so appending to it copies.
+type nodes struct {
+	exprs []Expr
+	args  []*Expr
+	// size is a chunk's length: the tree's node count, or a bound on it.
+	size int
+}
+
+// expr is a new zero node.
+//
+//go:noinline
+func (n *nodes) expr() *Expr {
+	if len(n.exprs) == cap(n.exprs) {
+		n.exprs = make([]Expr, 0, max(n.size, 1))
+	}
+	n.exprs = n.exprs[:len(n.exprs)+1]
+	return &n.exprs[len(n.exprs)-1]
+}
+
+// list is a new list of k operands, nil when k is 0.
+//
+//go:noinline
+func (n *nodes) list(k int) []*Expr {
+	if k == 0 {
+		return nil
+	}
+	if len(n.args)+k > cap(n.args) {
+		n.args = make([]*Expr, 0, max(n.size, k))
+	}
+	i := len(n.args)
+	n.args = n.args[:i+k]
+	return n.args[i : i+k : i+k]
+}
+
+// treeSize is the number of x's nodes, counting a node as often as the
+// tree reaches it. x is no deeper than MaxDepth.
+func treeSize(x *Expr) int {
+	n := 1
+	for _, a := range x.Args {
+		if a != nil {
+			n += treeSize(a)
+		}
+	}
+	return n
 }

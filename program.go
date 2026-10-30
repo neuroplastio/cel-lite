@@ -37,10 +37,10 @@ func (e *Env) Compile(src string) (*Program, error) {
 // Program plans a checked expression, the tree Check returned in this
 // Env.
 func (e *Env) Program(x *Expr) (*Program, error) {
-	if tooDeep(x, 1) {
+	if deepNode(x, 1) != nil {
 		return nil, &Error{Kind: SyntaxError, Pos: x.Pos, Msg: "expression is nested deeper than " + strconv.Itoa(MaxDepth)}
 	}
-	c := &compiler{env: e}
+	c := &compiler{env: e, size: treeSize(x)}
 	fn := c.compile(x)
 	if c.err != nil {
 		return nil, c.err
@@ -80,6 +80,10 @@ func (p *Program) Test(a Activation) (holds, unknown bool) {
 type compiler struct {
 	env *Env
 	err error
+	// fns holds the nodes' operand closures, in a chunk the size of the
+	// tree, made when a node first has operands.
+	fns  []evalFn
+	size int
 }
 
 func (c *compiler) compile(x *Expr) evalFn {
@@ -87,21 +91,73 @@ func (c *compiler) compile(x *Expr) evalFn {
 	if c.err != nil {
 		return nil
 	}
-	switch x.Op {
-	case OpSelect, OpIndex, OpCond:
+	if (x.Op == OpSelect || x.Op == OpIndex) && root(x).Op == OpCond {
 		at := c.attr(x)
 		if c.err != nil {
 			return nil
 		}
 		return attrValue(at)
 	}
-	args := make([]evalFn, len(x.Args))
+	args := c.operands(len(x.Args))
 	for i, a := range x.Args {
 		if args[i] = c.compile(a); c.err != nil {
 			return nil
 		}
 	}
+	if constant(x) {
+		return fold(c.build(x, args))
+	}
 	return c.build(x, args)
+}
+
+// operands is room for k operands' closures.
+//
+//go:noinline
+func (c *compiler) operands(k int) []evalFn {
+	if k == 0 {
+		return nil
+	}
+	if len(c.fns)+k > cap(c.fns) {
+		c.fns = make([]evalFn, 0, max(c.size, k))
+	}
+	i := len(c.fns)
+	c.fns = c.fns[:i+k]
+	return c.fns[i : i+k : i+k]
+}
+
+// root is the operand a chain of selections and indexes starts from. A
+// chain from a variable is cel-go's absolute attribute and one from a
+// computed value a relative one (see attrFn), known when the chain is
+// planned; one from a conditional is planned as an attrFn, which says at
+// run time.
+func root(x *Expr) *Expr {
+	for x.Op == OpSelect || x.Op == OpIndex {
+		x = x.Args[0]
+	}
+	return x
+}
+
+// constant reports whether x is a list or map literal of literals alone,
+// whose value is the same on every evaluation.
+func constant(x *Expr) bool {
+	if x.Op != OpList && x.Op != OpMap || len(x.Args) == 0 {
+		return false
+	}
+	for _, a := range x.Args {
+		if a.Op != OpLit {
+			return false
+		}
+	}
+	return true
+}
+
+// fold evaluates a constant once, when it is planned: lists and maps
+// are never changed once built.
+//
+//go:noinline
+func fold(fn evalFn) evalFn {
+	v := fn(nil)
+	return func(Activation) Value { return v }
 }
 
 // The planner recurses through compile and attr alone, which keep their
@@ -135,14 +191,17 @@ func (c *compiler) build(x *Expr, args []evalFn) evalFn {
 		return func(a Activation) Value {
 			probe()
 			v, p := a.Var(i)
-			switch p {
-			case Present:
-				return v
-			case Unknown:
-				return Value{k: unknownKind, s: name}
+			if p != Present {
+				return varState(p, name)
 			}
-			return errValue(eNoAttr, name)
+			return v
 		}
+	case OpSelect:
+		return c.selectFn(x, args[0])
+	case OpIndex:
+		return indexFn(args[0], args[1], root(x).Op == OpVar)
+	case OpCond:
+		return condFn(args[0], args[1], args[2])
 	case OpHas:
 		op, name := args[0], x.Name
 		return func(a Activation) Value {
@@ -170,17 +229,7 @@ func (c *compiler) build(x *Expr, args []evalFn) evalFn {
 	case OpOr:
 		return logic(args[0], args[1], true)
 	case OpNot:
-		op := args[0]
-		return func(a Activation) Value {
-			v := op(a)
-			switch {
-			case v.k >= errKind:
-				return v
-			case v.k != BoolKind:
-				return errValue(eNoOverload, "!_")
-			}
-			return BoolValue(v.n == 0)
-		}
+		return notFn(x, args[0])
 	case OpNeg:
 		op := args[0]
 		return func(a Activation) Value {
@@ -199,28 +248,27 @@ func (c *compiler) build(x *Expr, args []evalFn) evalFn {
 			return errValue(eNoOverload, "-_")
 		}
 	case OpEq, OpNe:
-		ne := x.Op == OpNe
-		return binary(args[0], args[1], func(l, r Value) Value { return BoolValue(equal(l, r) != ne) })
+		return equality(x, args, x.Op == OpNe)
 	case OpLt:
-		return binary(args[0], args[1], func(l, r Value) Value { return relate(l, r, "_<_", func(c int) bool { return c < 0 }) })
+		return binary(x, args, func(l, r Value) Value { return relate(l, r, "_<_", func(c int) bool { return c < 0 }) })
 	case OpLe:
-		return binary(args[0], args[1], func(l, r Value) Value { return relate(l, r, "_<=_", func(c int) bool { return c <= 0 }) })
+		return binary(x, args, func(l, r Value) Value { return relate(l, r, "_<=_", func(c int) bool { return c <= 0 }) })
 	case OpGt:
-		return binary(args[0], args[1], func(l, r Value) Value { return relate(l, r, "_>_", func(c int) bool { return c > 0 }) })
+		return binary(x, args, func(l, r Value) Value { return relate(l, r, "_>_", func(c int) bool { return c > 0 }) })
 	case OpGe:
-		return binary(args[0], args[1], func(l, r Value) Value { return relate(l, r, "_>=_", func(c int) bool { return c >= 0 }) })
+		return binary(x, args, func(l, r Value) Value { return relate(l, r, "_>=_", func(c int) bool { return c >= 0 }) })
 	case OpIn:
-		return binary(args[0], args[1], in)
+		return binary(x, args, in)
 	case OpAdd:
-		return binary(args[0], args[1], add)
+		return binary(x, args, add)
 	case OpSub:
-		return binary(args[0], args[1], sub)
+		return binary(x, args, sub)
 	case OpMul:
-		return binary(args[0], args[1], mul)
+		return binary(x, args, mul)
 	case OpDiv:
-		return binary(args[0], args[1], div)
+		return binary(x, args, div)
 	case OpMod:
-		return binary(args[0], args[1], mod)
+		return binary(x, args, mod)
 	case OpList:
 		return func(a Activation) Value {
 			out := make(valueList, len(args))
@@ -298,10 +346,97 @@ func literal(v any) Value {
 	return ValueOf(v)
 }
 
+// A Value is 48 bytes, more than gc keeps in registers: each Value a
+// call returns is copied through the stack, and the copy stalls (its
+// loads span the stores that spilled it). So the closures on the hot
+// paths read a variable themselves and build their result rather than
+// pass on one they were given, each a layer fewer.
+
+// varState is the value of a variable that isn't present: unknown, or
+// an error when it is absent.
+func varState(p Presence, name string) Value {
+	if p == Unknown {
+		return Value{k: unknownKind, s: name}
+	}
+	return errValue(eNoAttr, name)
+}
+
+// notFn is !x, reading a variable itself rather than through its
+// closure: `!pane.zoomed` is a keymap's commonest context.
+//
+//go:noinline
+func notFn(x *Expr, op evalFn) evalFn {
+	if v := x.Args[0]; v.Op == OpVar {
+		i, name := v.Ref, v.Name
+		return func(a Activation) Value {
+			probe()
+			v, p := a.Var(i)
+			switch {
+			case p != Present:
+				return varState(p, name)
+			case v.k != BoolKind:
+				return errValue(eNoOverload, "!_")
+			}
+			return BoolValue(v.n == 0)
+		}
+	}
+	return func(a Activation) Value { return not(op(a)) }
+}
+
+func not(v Value) Value {
+	switch {
+	case v.k >= errKind:
+		return v
+	case v.k != BoolKind:
+		return errValue(eNoOverload, "!_")
+	}
+	return BoolValue(v.n == 0)
+}
+
+// condFn is cond ? t : f, as a value.
+//
+//go:noinline
+func condFn(cond, t, f evalFn) evalFn {
+	return func(a Activation) Value {
+		v := cond(a)
+		switch {
+		case v.k >= errKind:
+			return v
+		case v.k != BoolKind:
+			return errValue(eNoOverload, "_?_:_")
+		case v.n != 0:
+			return t(a)
+		}
+		return f(a)
+	}
+}
+
 // binary evaluates a strict operator, as cel-go's evalBinary: an error on
 // the left is returned without evaluating the right; then an error on
-// the right; then either side unknown; then the operator.
-func binary(l, r evalFn, op func(l, r Value) Value) evalFn {
+// the right; then either side unknown; then the operator. An operand
+// that is a constant value is held, not evaluated.
+//
+//go:noinline
+func binary(x *Expr, args []evalFn, op func(l, r Value) Value) evalFn {
+	l, r := args[0], args[1]
+	if rv, ok := constValue(x.Args[1], r); ok {
+		return func(a Activation) Value {
+			lv := l(a)
+			if lv.k >= errKind {
+				return lv
+			}
+			return op(lv, rv)
+		}
+	}
+	if lv, ok := constValue(x.Args[0], l); ok {
+		return func(a Activation) Value {
+			rv := r(a)
+			if rv.k >= errKind {
+				return rv
+			}
+			return op(lv, rv)
+		}
+	}
 	return func(a Activation) Value {
 		lv := l(a)
 		if lv.k == errKind {
@@ -320,6 +455,58 @@ func binary(l, r evalFn, op func(l, r Value) Value) evalFn {
 	}
 }
 
+// equality is == (or, ne, !=): binary's evaluation, with equal called
+// in the closure rather than through an operator's.
+//
+//go:noinline
+func equality(x *Expr, args []evalFn, ne bool) evalFn {
+	l, r := args[0], args[1]
+	if rv, ok := constValue(x.Args[1], r); ok {
+		return func(a Activation) Value {
+			lv := l(a)
+			if lv.k >= errKind {
+				return lv
+			}
+			return BoolValue(equal(lv, rv) != ne)
+		}
+	}
+	if lv, ok := constValue(x.Args[0], l); ok {
+		return func(a Activation) Value {
+			rv := r(a)
+			if rv.k >= errKind {
+				return rv
+			}
+			return BoolValue(equal(lv, rv) != ne)
+		}
+	}
+	return func(a Activation) Value {
+		lv := l(a)
+		if lv.k == errKind {
+			return lv
+		}
+		rv := r(a)
+		switch {
+		case rv.k == errKind:
+			return rv
+		case lv.k == unknownKind:
+			return lv
+		case rv.k == unknownKind:
+			return rv
+		}
+		return BoolValue(equal(lv, rv) != ne)
+	}
+}
+
+// constValue is x's value, planned as fn, when it is the same on every
+// evaluation, a literal or a list or map of literals, and isn't an error.
+func constValue(x *Expr, fn evalFn) (Value, bool) {
+	if x.Op != OpLit && !constant(x) {
+		return Value{}, false
+	}
+	v := fn(nil)
+	return v, v.k < errKind
+}
+
 // logic is && (or false) or ||: either side's false (true) decides,
 // whatever the other gives; else unknown wins over an error, and an error
 // (or a value that isn't a bool) over the other side's true (false).
@@ -327,11 +514,11 @@ func logic(l, r evalFn, or bool) evalFn {
 	return func(a Activation) Value {
 		lv := l(a)
 		if lv.k == BoolKind && (lv.n != 0) == or {
-			return lv
+			return BoolValue(or)
 		}
 		rv := r(a)
 		if rv.k == BoolKind && (rv.n != 0) == or {
-			return rv
+			return BoolValue(or)
 		}
 		switch {
 		case lv.k == unknownKind:
@@ -403,26 +590,39 @@ func indexAttr(op attrFn, ix evalFn) attrFn {
 	}
 	return func(a Activation) (Value, bool) {
 		o, abs := op(a)
-		if o.k == errKind || o.k == unknownKind && !abs {
-			return o, abs
-		}
-		i := ix(a)
-		switch {
-		case i.k == errKind:
-			return i, abs
-		case o.k == unknownKind:
-			// cel-go makes the index a qualifier first, even of
-			// a variable that is unknown.
-			switch i.k {
-			case StringKind, IntKind, UintKind, BoolKind, DoubleKind, unknownKind:
-				return o, abs
-			}
-			return errValue(eMessage, "invalid qualifier type: "+kindNames[i.k]), abs
-		case i.k == unknownKind:
-			return i, abs
-		}
-		return index(o, i), abs
+		return qualify(a, o, abs, ix), abs
 	}
+}
+
+// indexFn is op[ix], op read through a variable or not (abs).
+//
+//go:noinline
+func indexFn(op, ix evalFn, abs bool) evalFn {
+	return func(a Activation) Value { return qualify(a, op(a), abs, ix) }
+}
+
+// qualify is o[ix]: ix isn't evaluated when o is an error, or an unknown
+// not read through a variable.
+func qualify(a Activation, o Value, abs bool, ix evalFn) Value {
+	if o.k == errKind || o.k == unknownKind && !abs {
+		return o
+	}
+	i := ix(a)
+	switch {
+	case i.k == errKind:
+		return i
+	case o.k == unknownKind:
+		// cel-go makes the index a qualifier first, even of a
+		// variable that is unknown.
+		switch i.k {
+		case StringKind, IntKind, UintKind, BoolKind, DoubleKind, unknownKind:
+			return o
+		}
+		return errValue(eMessage, "invalid qualifier type: "+kindNames[i.k])
+	case i.k == unknownKind:
+		return i
+	}
+	return index(o, i)
 }
 
 // condAttr is cond ? t : f: whichever branch it takes.
@@ -446,42 +646,76 @@ func condAttr(cond evalFn, t, f attrFn) attrFn {
 	}
 }
 
-// selectAttr plans a selection: a struct's field by index when the
-// operand is typed as that struct, else by name at run time.
+// selection is a planned selection, .name: a struct's field by index
+// when the operand is typed as that struct, else by name at run time.
+type selection struct {
+	env   *Env
+	name  string
+	key   Value
+	sname string
+	i     int
+}
+
+func (c *compiler) selection(x *Expr) *selection {
+	s := &selection{env: c.env, name: x.Name, key: StringValue(x.Name)}
+	if t := x.Args[0].Type; t.Kind == StructKind {
+		s.sname, s.i = t.Name, x.Ref
+	}
+	return s
+}
+
+// of is o.name.
+func (s *selection) of(o Value) Value {
+	if o.k == StructKind && o.s == s.sname && s.sname != "" {
+		return o.o.(Object).Field(s.i)
+	}
+	if o.k >= errKind {
+		return o
+	}
+	return selectValue(s.env, o, s.name, s.key)
+}
+
+// selectFn is op.name, reading a variable itself rather than through
+// its closure: `row.name` is a template's commonest binding.
+//
+//go:noinline
+func (c *compiler) selectFn(x *Expr, op evalFn) evalFn {
+	s := c.selection(x)
+	if v := x.Args[0]; v.Op == OpVar {
+		i, name := v.Ref, v.Name
+		return func(a Activation) Value {
+			probe()
+			o, p := a.Var(i)
+			switch {
+			case p != Present:
+				return varState(p, name)
+			case o.k == StructKind && o.s == s.sname && s.sname != "":
+				return o.o.(Object).Field(s.i)
+			}
+			return s.of(o)
+		}
+	}
+	return func(a Activation) Value { return s.of(op(a)) }
+}
+
+// selectAttr is selectFn as an attribute.
 //
 //go:noinline
 func (c *compiler) selectAttr(x *Expr, op attrFn) attrFn {
-	if c.err != nil {
+	if c.err != nil || op == nil {
 		return nil
 	}
-	name := x.Name
-	key := StringValue(name)
-	if t := x.Args[0].Type; t.Kind == StructKind {
-		i, sname := x.Ref, t.Name
-		return func(a Activation) (Value, bool) {
-			o, abs := op(a)
-			if o.k == StructKind && o.s == sname {
-				return o.o.(Object).Field(i), abs
-			}
-			if o.k >= errKind {
-				return o, abs
-			}
-			return c.selectValue(o, name, key), abs
-		}
-	}
+	s := c.selection(x)
 	return func(a Activation) (Value, bool) {
 		o, abs := op(a)
-		if o.k >= errKind {
-			return o, abs
-		}
-		return c.selectValue(o, name, key), abs
+		return s.of(o), abs
 	}
 }
 
 // selectValue is o.name for an o whose type is known only at run time.
 //
 //go:noinline
-func (c *compiler) selectValue(o Value, name string, key Value) Value {
+func selectValue(env *Env, o Value, name string, key Value) Value {
 	switch o.k {
 	case MapKind:
 		if v, ok := mapGet(o.o.(Map), key); ok {
@@ -489,7 +723,7 @@ func (c *compiler) selectValue(o Value, name string, key Value) Value {
 		}
 		return errValue(eNoKey, strconv.Quote(name))
 	case StructKind:
-		if s := c.env.structs[o.s]; s != nil {
+		if s := env.structs[o.s]; s != nil {
 			if i, ok := s.fields[name]; ok {
 				return o.o.(Object).Field(i)
 			}
@@ -905,10 +1139,11 @@ func mod(l, r Value) Value {
 // callFn plans a call: its arguments are strict, as in cel-go's
 // evalVarArgs: the first error is returned, else the first unknown.
 func (c *compiler) callFn(x *Expr, args []evalFn) evalFn {
-	var fn func(vs []Value) Value
 	if _, ok := builtins[x.Name]; ok {
-		fn = standardFn(x.Name)
-	} else {
+		return standardCall(standardFn(x.Name), args)
+	}
+	var fn func(vs []Value) Value
+	{
 		f := c.env.funcs[x.Name]
 		var only *Overload
 		for i := range f.Overloads {
@@ -1012,12 +1247,45 @@ func valueFits(v Value, t Type) bool {
 	return v.k == t.Kind
 }
 
+// standardCall calls a standard function, which takes one argument or
+// two, with no slice between them: strict, as any call.
+//
+//go:noinline
+func standardCall(fn func(a, b Value) Value, args []evalFn) evalFn {
+	a0 := args[0]
+	if len(args) == 1 {
+		return func(a Activation) Value {
+			v := a0(a)
+			if v.k >= errKind {
+				return v
+			}
+			return fn(v, Value{})
+		}
+	}
+	a1 := args[1]
+	return func(a Activation) Value {
+		v := a0(a)
+		if v.k == errKind {
+			return v
+		}
+		w := a1(a)
+		switch {
+		case w.k == errKind:
+			return w
+		case v.k == unknownKind:
+			return v
+		case w.k == unknownKind:
+			return w
+		}
+		return fn(v, w)
+	}
+}
+
 // standardFn is a standard function, dispatched on its arguments' kinds.
-func standardFn(name string) func(vs []Value) Value {
+func standardFn(name string) func(a, b Value) Value {
 	switch name {
 	case "size":
-		return func(vs []Value) Value {
-			v := vs[0]
+		return func(v, _ Value) Value {
 			switch v.k {
 			case StringKind:
 				return IntValue(int64(utf8.RuneCountInString(v.s)))
@@ -1038,33 +1306,33 @@ func standardFn(name string) func(vs []Value) Value {
 		case "endsWith":
 			test = strings.HasSuffix
 		}
-		return func(vs []Value) Value {
-			if vs[0].k != StringKind || vs[1].k != StringKind {
+		return func(s, sub Value) Value {
+			if s.k != StringKind || sub.k != StringKind {
 				return errValue(eNoOverload, name)
 			}
-			return BoolValue(test(vs[0].s, vs[1].s))
+			return BoolValue(test(s.s, sub.s))
 		}
 	case "int":
-		return func(vs []Value) Value { return toInt(vs[0]) }
+		return func(v, _ Value) Value { return toInt(v) }
 	case "uint":
-		return func(vs []Value) Value { return toUint(vs[0]) }
+		return func(v, _ Value) Value { return toUint(v) }
 	case "double":
-		return func(vs []Value) Value { return toDouble(vs[0]) }
+		return func(v, _ Value) Value { return toDouble(v) }
 	case "string":
-		return func(vs []Value) Value { return toString(vs[0]) }
+		return func(v, _ Value) Value { return toString(v) }
 	case "bytes":
-		return func(vs []Value) Value {
-			switch v := vs[0]; v.k {
+		return func(v, _ Value) Value {
+			switch v.k {
 			case BytesKind:
 				return v
 			case StringKind:
 				return Value{k: BytesKind, s: v.s}
 			}
-			return convError(vs[0], "bytes")
+			return convError(v, "bytes")
 		}
 	case "bool":
-		return func(vs []Value) Value {
-			switch v := vs[0]; v.k {
+		return func(v, _ Value) Value {
+			switch v.k {
 			case BoolKind:
 				return v
 			case StringKind:
@@ -1072,12 +1340,12 @@ func standardFn(name string) func(vs []Value) Value {
 					return BoolValue(b)
 				}
 			}
-			return convError(vs[0], "bool")
+			return convError(v, "bool")
 		}
 	case "dyn":
-		return func(vs []Value) Value { return vs[0] }
+		return func(v, _ Value) Value { return v }
 	}
-	return func([]Value) Value { return errValue(eNoOverload, name) }
+	return func(_, _ Value) Value { return errValue(eNoOverload, name) }
 }
 
 func convError(v Value, to string) Value {

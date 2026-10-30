@@ -58,7 +58,7 @@
 // TinyGo's wasm. An expression is at most MaxSize bytes, its tree at most
 // MaxDepth (50) deep, and its brackets, calls and conditionals nest at
 // most 16 deep. Within those limits the parser, the checker, the planner
-// and the evaluator each need at most 14.4 KB of stack under TinyGo 0.42
+// and the evaluator each need at most 13.2 KB of stack under TinyGo 0.42
 // on wasm (`make stack` measures it, against a budget of 16 KB), which
 // leaves most of a TinyGo goroutine's fixed 64 KB to the program around
 // them; the gate runs every test on a 32 KB stack. Integers are int64 and

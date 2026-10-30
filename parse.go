@@ -50,8 +50,9 @@ type parser struct {
 	tok  token
 	err  *Error
 	nest int
-	// depth is each node's depth in its tree, for MaxDepth.
-	depth map[*Expr]int
+	// n holds the tree's nodes. A node takes a token or more, so the
+	// tokens bound their number.
+	n nodes
 }
 
 // Parse reads a CEL expression into its tree, unchecked: names are
@@ -64,7 +65,8 @@ func Parse(src string) (*Expr, error) {
 		return nil, newError(src, 0, SyntaxError, "", "expression is larger than "+strconv.Itoa(MaxSize)+" bytes")
 	}
 	src = validUTF8(src)
-	p := &parser{src: src, toks: lex(src), depth: map[*Expr]int{}}
+	p := &parser{src: src, toks: lex(src)}
+	p.n.size = len(p.toks)
 	p.tok = p.toks[0]
 	x := p.expr()
 	if p.err == nil && p.tok.kind != tEOF {
@@ -72,6 +74,11 @@ func Parse(src string) (*Expr, error) {
 	}
 	if p.err != nil {
 		return nil, p.err
+	}
+	// The parser's own recursion is bounded by maxNest; the tree's depth
+	// is checked once it is built.
+	if d := deepNode(x, 1); d != nil {
+		return nil, newError(src, d.Pos, SyntaxError, "", "expression is nested deeper than "+strconv.Itoa(MaxDepth))
 	}
 	return x, nil
 }
@@ -156,22 +163,13 @@ func (p *parser) expect(k tokKind) bool {
 	return true
 }
 
-// node makes a node and checks MaxDepth.
-//
-//go:noinline
+// node makes a node.
 func (p *parser) node(op Op, pos int, args ...*Expr) *Expr {
 	probe()
-	x := &Expr{Op: op, Pos: pos, Args: args}
-	d := 1
-	for _, a := range args {
-		if a != nil && p.depth[a]+1 > d {
-			d = p.depth[a] + 1
-		}
-	}
-	p.depth[x] = d
-	if d > MaxDepth {
-		p.fail(pos, SyntaxError, "", "expression is nested deeper than "+strconv.Itoa(MaxDepth))
-	}
+	x := p.n.expr()
+	x.Op, x.Pos = op, pos
+	x.Args = p.n.list(len(args))
+	copy(x.Args, args)
 	return x
 }
 

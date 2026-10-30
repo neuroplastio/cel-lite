@@ -65,7 +65,7 @@ var tokenDesc = [...]string{
 // (an unterminated string, a stray character) ends the list with tBad at
 // its position.
 func lex(src string) []token {
-	var out []token
+	out := make([]token, 0, len(src)/4+2)
 	i := 0
 	for {
 		// White space and comments, as CEL.g4's WHITESPACE and COMMENT.

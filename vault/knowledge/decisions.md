@@ -47,3 +47,11 @@ Parse, Check and Program are separate and public. Check returns a new tree
 with every node typed; Ref is a variable's index (OpVar) or a struct
 field's index (OpSelect), and Overload names the one overload that fits,
 for generators such as hotty-surf's.
+
+## D7: A tree's nodes in chunks (2026-10-30)
+
+Parse and Check make a tree's nodes and its operand lists in a few
+chunks, sized by the tokens (Parse) or the tree (Check), not one
+allocation a node. A program may change a node or give it new Args;
+an Args slice has no room past its end, so appending to it copies. A
+node kept keeps its chunk.

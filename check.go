@@ -12,10 +12,11 @@ import (
 // (*Error). Check has no source, so the Error's Line and Col are 0;
 // Compile fills them in.
 func (e *Env) Check(x *Expr) (*Expr, error) {
-	if tooDeep(x, 1) {
+	if deepNode(x, 1) != nil {
 		return nil, &Error{Kind: SyntaxError, Pos: x.Pos, Msg: "expression is nested deeper than " + strconv.Itoa(MaxDepth)}
 	}
 	c := &checker{env: e}
+	c.n.size = treeSize(x)
 	y := c.check(x)
 	if c.err != nil {
 		return nil, c.err
@@ -24,25 +25,31 @@ func (e *Env) Check(x *Expr) (*Expr, error) {
 	return y, nil
 }
 
-// tooDeep reports whether a tree, at depth d, goes deeper than MaxDepth:
-// Parse makes none, but a program may build one. It recurses no further
-// than MaxDepth.
-func tooDeep(x *Expr, d int) bool {
+// deepNode is a node of x, itself at depth d, that lies deeper than
+// MaxDepth, or nil. Parse refuses such a tree, and so do Check and
+// Program, for one a program builds. It recurses no further than
+// MaxDepth.
+func deepNode(x *Expr, d int) *Expr {
 	if d > MaxDepth {
-		return true
+		return x
 	}
 	for _, a := range x.Args {
-		if tooDeep(a, d+1) {
-			return true
+		if a == nil {
+			continue
+		}
+		if n := deepNode(a, d+1); n != nil {
+			return n
 		}
 	}
-	return false
+	return nil
 }
 
 // checker checks one expression; the first error stops it.
 type checker struct {
 	env *Env
 	err *Error
+	// n holds the checked tree's nodes, no more than the parsed tree's.
+	n nodes
 }
 
 func (c *checker) fail(pos int, kind ErrorKind, name, msg string) *Expr {
@@ -96,9 +103,10 @@ func (c *checker) check(x *Expr) *Expr {
 	case OpSelect:
 		return c.selectField(x)
 	}
-	y := &Expr{Op: x.Op, Pos: x.Pos, Value: x.Value, Name: x.Name, Member: x.Member}
+	y := c.n.expr()
+	y.Op, y.Pos, y.Value, y.Name, y.Member = x.Op, x.Pos, x.Value, x.Name, x.Member
 	if len(x.Args) > 0 {
-		y.Args = make([]*Expr, len(x.Args))
+		y.Args = c.n.list(len(x.Args))
 		for i, a := range x.Args {
 			if y.Args[i] = c.check(a); c.err != nil {
 				return nil
@@ -359,7 +367,7 @@ func hasStruct(t Type) bool {
 // ident resolves a name to a variable.
 func (c *checker) ident(x *Expr) *Expr {
 	if i, ok := c.env.varIdx[x.Name]; ok {
-		return &Expr{Op: OpVar, Pos: x.Pos, Name: x.Name, Ref: i, Type: c.env.vars[i].Type}
+		return c.variable(x, x.Name, i)
 	}
 	if typeNames[x.Name] {
 		return c.fail(x.Pos, Unsupported, "type "+x.Name, "type values ('"+x.Name+"') are not supported")
@@ -367,27 +375,52 @@ func (c *checker) ident(x *Expr) *Expr {
 	return c.fail(x.Pos, Undeclared, x.Name, "undeclared reference to '"+x.Name+"'")
 }
 
-// qualified is the dotted name a chain of selections on an identifier
-// spells: `a.b.c`.
-func qualified(x *Expr) (string, bool) {
-	switch x.Op {
-	case OpIdent:
-		return x.Name, true
-	case OpSelect:
-		if q, ok := qualified(x.Args[0]); ok {
-			return q + "." + x.Name, true
-		}
+// variable is the variable i, named name, that x reads.
+func (c *checker) variable(x *Expr, name string, i int) *Expr {
+	y := c.n.expr()
+	*y = Expr{Op: OpVar, Pos: x.Pos, Name: name, Ref: i, Type: c.env.vars[i].Type}
+	return y
+}
+
+// declared is the variable a chain of selections on an identifier names,
+// `a.b.c`, when the Env declares it. The name is made only then.
+//
+//go:noinline
+func (c *checker) declared(x *Expr) (string, int, bool) {
+	n := len(x.Name)
+	y := x.Args[0]
+	for ; y.Op == OpSelect; y = y.Args[0] {
+		n += len(y.Name) + 1
 	}
-	return "", false
+	if y.Op != OpIdent {
+		return "", 0, false
+	}
+	n += len(y.Name) + 1
+	var buf [64]byte
+	b := buf[:0]
+	if n > len(buf) {
+		b = make([]byte, n)
+	}
+	b = b[:n]
+	for y = x; y.Op == OpSelect; y = y.Args[0] {
+		n -= len(y.Name)
+		copy(b[n:], y.Name)
+		n--
+		b[n] = '.'
+	}
+	copy(b, y.Name)
+	i, ok := c.env.varIdx[string(b)]
+	if !ok {
+		return "", 0, false
+	}
+	return string(b), i, true
 }
 
 // selectField checks a selection: a qualified name the Env declares is
 // that variable, as in cel-go, else a struct's field or a map's key.
 func (c *checker) selectField(x *Expr) *Expr {
-	if q, ok := qualified(x); ok {
-		if i, ok := c.env.varIdx[q]; ok {
-			return &Expr{Op: OpVar, Pos: x.Pos, Name: q, Ref: i, Type: c.env.vars[i].Type}
-		}
+	if q, i, ok := c.declared(x); ok {
+		return c.variable(x, q, i)
 	}
 	op := c.check(x.Args[0])
 	if c.err != nil {
@@ -400,7 +433,9 @@ func (c *checker) selectField(x *Expr) *Expr {
 //
 //go:noinline
 func (c *checker) selectType(x, op *Expr) *Expr {
-	y := &Expr{Op: OpSelect, Pos: x.Pos, Name: x.Name, Args: []*Expr{op}}
+	y := c.n.expr()
+	y.Op, y.Pos, y.Name, y.Args = OpSelect, x.Pos, x.Name, c.n.list(1)
+	y.Args[0] = op
 	switch t := op.Type; {
 	case t.Kind == MapKind:
 		if y.Type = elemOf(t); y.Type.Kind == freeKind {
