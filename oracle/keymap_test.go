@@ -36,7 +36,8 @@ func TestOracleKeymaps(t *testing.T) {
 		files = append(files, m...)
 	}
 	if len(files) == 0 {
-		t.Skip("no keymap checkouts beside this one")
+		t.Skip("no keymaps to read: the test reads kubecom's and plx's .kdl keymaps " +
+			"from their checkouts beside this one (../../../<repo>/main), which this clone hasn't")
 	}
 	seen := map[string]bool{}
 	var srcs []string

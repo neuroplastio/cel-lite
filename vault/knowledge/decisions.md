@@ -15,7 +15,7 @@ a nested module, linked into no binary.
 An expression means what CEL's language definition says, and what cel-go
 v0.32 does wherever the two agree. Where cel-go strays, cel-lite follows
 the definition or refuses by name, lists the difference in doc.go, and the
-oracle excludes the case by name, citing the definition (gov, R-10 lean 2).
+oracle excludes the case by name, citing the definition (gov).
 
 ## D3: Type parameters that cel-go binds are refused (2026-10-30)
 
