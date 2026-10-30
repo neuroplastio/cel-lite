@@ -73,6 +73,8 @@ type EvalError struct {
 	Err error
 }
 
+// Error is the message: "division by zero", "no such key: a", or what a
+// helper's error says.
 func (e *EvalError) Error() string { return e.Msg }
 
 // Unwrap is the helper's error.

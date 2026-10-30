@@ -11,11 +11,16 @@
 //		{Name: "pane.id", Type: cellite.String},
 //	}})
 //	prg, err := env.Compile(`pane && pane.id == 'x'`)
-//	holds, unknown := prg.Test(env.Activation(map[string]any{"pane": true, "pane.id": "x"}))
+//	act := env.Activation(map[string]any{"pane": true, "pane.id": "x"})
+//	holds, unknown := prg.Test(act)
 //
 // Compile is Parse, then Check, then Program. Each step is public: Parse
 // gives the syntax tree (an *Expr), Check resolves its names and types
 // every node, and Program plans the checked tree for evaluation.
+//
+// The guides (getting started, the language, embedding, limits and
+// TinyGo, performance) are in the repository's docs directory:
+// https://github.com/neuroplastio/cel-lite/tree/main/docs.
 //
 // # Meaning
 //

@@ -9,9 +9,14 @@ import (
 // Decls is what a program declares to its expressions: variables, the
 // structs their values may be, and helper functions.
 type Decls struct {
-	Vars    []Var
+	// Vars are the variables an expression may read, in the order an
+	// Activation indexes them.
+	Vars []Var
+	// Structs are the struct types the variables' values may be or hold.
 	Structs []Struct
-	Funcs   []Func
+	// Funcs are the helpers an expression may call, beside CEL's
+	// standard functions.
+	Funcs []Func
 }
 
 // Var is a variable. Its name may be qualified, `pane.id`: an expression
@@ -49,6 +54,8 @@ type Overload struct {
 	ID string
 	// Member makes it a method: `x.f(y)`, with the receiver as Args[0].
 	Member bool
+	// Args are the parameters' types, and Result the type it returns.
+	// Dyn takes, or gives, a value of any type.
 	Args   []Type
 	Result Type
 	// Fn runs it. Its arguments are the values, not errors or unknowns,
@@ -257,6 +264,7 @@ const (
 // Activation gives an evaluation its variables' values, by their index
 // in the Env (Env.Vars).
 type Activation interface {
+	// Var is variable i's value, or that it is Absent or Unknown.
 	Var(i int) (Value, Presence)
 }
 

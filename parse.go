@@ -11,8 +11,9 @@ import (
 // refused rather than read. The parser, the checker, the planner and the
 // evaluator recurse once per level, and a TinyGo goroutine's stack is a
 // fixed 64 KB, which an overflow corrupts silently: the limits keep each
-// of them within 16 KB there, as `make stack` measures and the gate
-// checks (stack_test.go). Raise one only with a new measurement.
+// of them within 16 KB there, as `make stack` measures and the tests
+// check. Brackets, calls and conditionals also nest at most 16 deep. A
+// limit rises only with a new measurement.
 const (
 	// MaxSize is the longest source Parse reads, in bytes.
 	MaxSize = 100_000

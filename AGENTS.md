@@ -50,13 +50,16 @@ easy to rename (one module path, one package name, `cellite`).
 - **Nothing private.** No data from private repositories goes into this
   one: the oracle reads keymap contexts from sibling checkouts at test time
   and skips when they are missing.
-- **Publishing is the maintainer's.** No remote, no tag, no push without
-  the maintainer's go-ahead (P-5).
+- **Publishing is the maintainer's.** No push, no tag and no release
+  without the maintainer's go-ahead.
 
 ## Where things live
 
-- `doc.go`: the user docs: meaning, the differences from cel-go, values,
-  limits and the stack they need.
+- `README.md` and `docs/`: the user docs, which the website renders from
+  `docs/docs.yaml` and each page's front matter (group, order, nav,
+  description; the title is the page's heading). `doc.go` and the godoc
+  say the same in short, and `example_test.go` runs: keep them in step.
+  Code lines in the docs stay within 80 columns.
 - `oracle/`: the comparison with cel-go: a corpus, generated expressions,
   two fuzz targets, and cel-go's side of the benchmarks.
 - `limit_test.go`, `stack_test.go`, `stackprobe*.go`: the worst cases at

@@ -1,0 +1,4 @@
+# cel-lite's docs as its website shows them: the README is the overview,
+# and each page in this directory says where it goes in its front matter.
+name: cel-lite
+description: CEL expressions for Go, with the standard library alone, for TinyGo and WebAssembly too.

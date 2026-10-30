@@ -12,6 +12,9 @@ const (
 	// say it: the zero Type is null's, which NewEnv refuses as a
 	// variable's or a field's type.
 	DynKind
+	// The kinds of CEL's scalar values, its lists and its maps: bool,
+	// int (int64), uint (uint64), double (float64), string, bytes, list
+	// and map.
 	BoolKind
 	IntKind
 	UintKind
