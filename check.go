@@ -215,7 +215,9 @@ func (c *checker) typed(x, y *Expr) *Expr {
 		if !assignable(l, r) {
 			return c.noOverload(x.Pos, opNames[x.Op], y.Args...)
 		}
-		if hasStruct(l) || hasStruct(r) {
+		// A struct against null compares no structs: the value decides,
+		// a struct never null and a null always.
+		if (hasStruct(l) || hasStruct(r)) && l.Kind != NullKind && r.Kind != NullKind {
 			return c.fail(x.Pos, Unsupported, "== on structs", "comparing structs is not supported")
 		}
 		y.Type = Bool

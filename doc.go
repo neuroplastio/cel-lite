@@ -55,6 +55,9 @@
 //   - cel-go reads a struct's field by its name with [] when a dyn hides
 //     the struct, `dyn(item)['title']`. In the definition [] reads a list
 //     or a map; cel-lite gives an error (no such overload).
+//   - `x in m` with x bytes, as untyped data can give a variable, is
+//     false on any map: bytes are never a key. cel-go fails on a map
+//     literal, which can't hash them, and says false on a Go map.
 //   - cel-lite's limits are lower than cel-go's (Limits).
 //
 // # Values
@@ -65,7 +68,8 @@
 // A struct the program declares (Decls.Structs) is read by field index,
 // which Check resolves, through Object. cel-lite doesn't compare structs:
 // Check refuses == on them, and where a dyn hides them the evaluation
-// does, unless the answer doesn't depend on it.
+// does, unless the answer doesn't depend on it. A struct against null
+// compares none, and the value decides: a struct is never null.
 //
 // # Limits
 //

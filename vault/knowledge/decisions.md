@@ -66,3 +66,17 @@ and structs and helpers still can't take a type's name. When the
 variable is absent, cel-go reads the type instead, which the checked
 type doesn't allow; cel-lite reports the variable missing (D2: doc.go
 lists it, the oracle leaves it out by name) (gov).
+
+## D9: Untyped values keep their checked overload; null against a struct (2026-10-30)
+
+Untyped data (a decoded file, a program's `map[string]any`) can give a
+variable a value of another kind than declared. A conversion keeps the
+overload Check chose, as cel-go does: `int(s)` with s a string given an
+int is an error (no such overload), not 1. `x in m` with x bytes stays
+false on any map, since bytes are never a key; cel-go fails only on a map
+literal, which can't hash them (D2: doc.go lists it, the oracle leaves it
+out by name). `x == null` and `x != null` with x a struct compare no
+structs, so Check lets them through and the value decides: a struct is
+never null, and a NullValue an Object gives for an unset field is. With
+cel-go's zero struct for a nil pointer it is false; with NullValue it is
+a presence test, which hotty-surf's templates use (gov, hotty-ui).

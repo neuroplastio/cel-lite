@@ -118,7 +118,9 @@ From the loosest to the tightest:
 | `dyn(x)`                                  | `x`, of type dyn                               |
 
 A conversion that doesn't fit, `int(1e19)` or `int('ten')`, is an error
-when the expression runs. Your program can add functions of its own:
+when the expression runs. So is one whose argument isn't of the type
+Check gave it, as untyped data can give a variable: `int(s)` with `s` a
+string variable given an int, as in cel-go. Your program can add functions of its own:
 [helpers](embedding.md#helpers).
 
 ## Errors and unknowns
@@ -154,7 +156,7 @@ feature:
 | Optional syntax             | `a.?b`, `[?x]`, `{?'k': v}`     | `optional syntax`          |
 | Escaped identifiers         | ``a.`b-c` ``                    | `escaped identifier`       |
 | `has()` on a struct's field | `has(item.title)`               | `has() on a struct`        |
-| Comparing structs           | `item == other`                 | `== on structs`            |
+| Comparing structs (not with `null`) | `item == other`         | `== on structs`            |
 | Map keys of other types     | `{1.5: 'a'}`                    | `map key double`           |
 | Inferred types              | `-x['k']` with `x` dyn          | `inferred type`            |
 
@@ -193,6 +195,10 @@ of these cases by name.
   `[]` when a dyn hides the struct: `dyn(item)['title']`. In the
   definition `[]` reads a list or a map, and a field is read with `.`;
   cel-lite gives an error (no such overload).
+- **A bytes key.** `x in m` with `x` bytes, as untyped data can give a
+  variable declared a string, is `false` on any map: bytes are never a
+  key. cel-go fails on a map literal, which can't hash them, and says
+  `false` on a Go map.
 - **Limits.** cel-lite reads shorter and shallower expressions than
   cel-go: see [Limits](tinygo.md#limits).
 

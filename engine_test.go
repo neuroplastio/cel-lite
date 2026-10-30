@@ -118,6 +118,12 @@ func TestEval(t *testing.T) {
 		// how they would compare.
 		{`st == 1`, "bool", "false"},
 		{`st != null`, "bool", "true"},
+		{`item == null`, "bool", "false"},
+		{`null != item`, "bool", "true"},
+		{`item.next == null`, "bool", "false"},
+		{`item.next.next == null`, "bool", "true"},
+		{`item.next.next != null || item.next.title == 'b'`, "bool", "true"},
+		{`byName['a'] != null`, "bool", "true"},
 		{`[st, 1] == [st, 2]`, "bool", "false"},
 		{`{'a': st, 'b': 1} == {'a': st, 'b': 2}`, "bool", "false"},
 		{`'a' in [st, 'a']`, "bool", "true"},

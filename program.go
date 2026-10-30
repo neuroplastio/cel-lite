@@ -1191,7 +1191,11 @@ func mod(l, r Value) Value {
 // evalVarArgs: the first error is returned, else the first unknown.
 func (c *compiler) callFn(x *Expr, args []evalFn) evalFn {
 	if _, ok := builtins[x.Name]; ok {
-		return standardCall(standardFn(x.Name), args)
+		fn := standardFn(x.Name)
+		if conversions[x.Name] && !isDynLike(x.Args[0].Type) {
+			fn = checkedConversion(x.Name, x.Args[0].Type, fn)
+		}
+		return standardCall(fn, args)
 	}
 	var fn func(vs []Value) Value
 	{
@@ -1327,6 +1331,25 @@ func standardCall(fn func(a, b Value) Value, args []evalFn) evalFn {
 			return v
 		case w.k == unknownKind:
 			return w
+		}
+		return fn(v, w)
+	}
+}
+
+// conversions are the standard functions that convert a value to a type,
+// dyn aside, which takes any.
+var conversions = map[string]bool{"int": true, "uint": true, "double": true, "string": true, "bytes": true, "bool": true}
+
+// checkedConversion is a conversion kept to the overload Check chose, as
+// cel-go keeps it: an argument of another kind than its checked type t,
+// as untyped data can give, is no overload, where fn would convert by the
+// value's kind.
+//
+//go:noinline
+func checkedConversion(name string, t Type, fn func(a, b Value) Value) func(a, b Value) Value {
+	return func(v, w Value) Value {
+		if !valueFits(v, t) {
+			return errValue(eNoOverload, name)
 		}
 		return fn(v, w)
 	}

@@ -55,8 +55,8 @@ type Object interface {
 	// a field's name to it (Expr.Ref). For a field of a struct type that
 	// isn't set, an Object of the struct's zero value reads as cel-go
 	// reads a native type's nil pointer and protobuf an unset message:
-	// its fields are their zero values. NullValue makes selecting from
-	// it an error.
+	// its fields are their zero values, and it is never null. NullValue
+	// makes it equal null, and selecting from it an error.
 	Field(i int) Value
 }
 

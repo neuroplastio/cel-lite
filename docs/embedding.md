@@ -123,12 +123,15 @@ reads it.
 A field whose type is a struct may have no value, like a nil pointer.
 Return an Object of the struct's zero value to read it as cel-go reads a
 native type's nil pointer, and protobuf an unset message: `a.next.size`
-is then `0`. Return `cellite.NullValue()` instead, and selecting from it
-is an error.
+is then `0`, and `a.next == null` is `false`. Return
+`cellite.NullValue()` instead, and `a.next == null` is `true`, which
+makes it a presence test, while selecting from it is an error:
+`a.next != null && a.next.size > 0` reads safely.
 
 cel-lite doesn't compare structs. Check refuses `==` and `in` on them,
 and so does the evaluation where a dyn hid them from Check, unless the
-answer doesn't depend on it.
+answer doesn't depend on it. A struct against `null` compares none: the
+value decides.
 
 ## Activations
 
