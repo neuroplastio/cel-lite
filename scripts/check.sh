@@ -10,9 +10,18 @@ set -euo pipefail
 cd "$(dirname "$0")/.."
 GO=${GO:-go}
 
+# A new scope starts from the whole machine, so it takes the caller's CPUs
+# and, if the caller runs idle, the idle weight: a gate confined to some
+# cores keeps its TinyGo builds there.
 capped() {
 	if command -v systemd-run >/dev/null && systemd-run --user --scope -q -p MemoryMax=64M -- true 2>/dev/null; then
-		systemd-run --user --scope -q -p MemoryMax=2G -p MemorySwapMax=0 -- timeout 600 "$@"
+		local props=(-p MemoryMax=2G -p MemorySwapMax=0)
+		local cpus cg
+		cpus=$(awk '/^Cpus_allowed_list:/ {print $2}' /proc/self/status)
+		[ -n "$cpus" ] && props+=(-p "AllowedCPUs=$cpus")
+		cg=/sys/fs/cgroup$(cut -d: -f3 /proc/self/cgroup)
+		[ "$(cat "$cg/cpu.idle" 2>/dev/null)" = 1 ] && props+=(-p CPUWeight=idle)
+		systemd-run --user --scope -q "${props[@]}" -- timeout 600 "$@"
 	else
 		timeout 600 "$@"
 	fi

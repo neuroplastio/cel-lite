@@ -42,9 +42,11 @@ easy to rename (one module path, one package name, `cellite`).
   work in a function apart, marked `//go:noinline`.
 - **Every heavy run is capped.** Builds, tests, fuzzing and TinyGo/wasm runs
   go under `systemd-run --user --scope -q -p MemoryMax=… -p MemorySwapMax=…`
-  with a timeout, plus `-p CPUWeight=idle` outside the feel lock. Send
-  output that could run away through `head -c` into a file. check.sh caps
-  its own TinyGo and wasm steps.
+  with a timeout, plus `-p CPUWeight=idle -p AllowedCPUs=4-11,16-23` (the
+  machine's efficient cores, so benchmarks keep the fast ones) outside the
+  feel lock. Send output that could run away through `head -c` into a
+  file. check.sh caps its own TinyGo and wasm steps, on the caller's CPUs
+  and weight.
 - **Benchmarks hold the feel lock** (`flock ~/.cache/hotty/sway-feel/lock …`)
   and stay short; other sessions queue on it. No artificial load.
 - **Nothing private.** No data from private repositories goes into this
