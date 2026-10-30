@@ -112,13 +112,16 @@ where cel-lite follows CEL's definition rather than cel-go.
 
 ## Status
 
-v0.1.0, the first release. cel-lite follows semantic versioning: until
-1.0, a release that breaks the API raises the minor version (0.1 to 0.2),
-and a patch release never does. Before 1.0 these may still change: the
-tree (`Expr` and its `Op`s) as the subset grows, the wording of error
-messages, and the API's edges as programs that embed it ask for things.
-An expression that compiles keeps its meaning, unless that meaning is
-found to differ from CEL's definition, which is a bug.
+Pre-1.0. The current version is on
+[pkg.go.dev](https://pkg.go.dev/github.com/neuroplastio/cel-lite) and
+among the [tags](https://github.com/neuroplastio/cel-lite/tags). cel-lite
+follows semantic versioning: until 1.0, a release that breaks the API
+raises the minor version (0.1 to 0.2), and a patch release never does.
+Before 1.0 these may still change: the tree (`Expr` and its `Op`s) as
+the subset grows, the wording of error messages, and the API's edges as
+programs that embed it ask for things. An expression that compiles keeps
+its meaning, unless that meaning is found to differ from CEL's
+definition, which is a bug.
 
 ## Developing
 
