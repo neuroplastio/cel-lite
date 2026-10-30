@@ -10,9 +10,6 @@ Top first. Claim an item before working on it; drop it when done.
   rests on gc's and TinyGo's interface layout, and ObjectValue's struct
   name needs a home: a decision before the work. Estimate: eval up to
   twice as fast under gc, less under TinyGo.
-- Check and Program panic on a malformed tree a program builds (an
-  OpSelect without its operand, a nil operand, a Ref out of range, a
-  helper the Env hasn't): refuse them. [myelin]
 - Structs in the oracle (cel-go's native types), beside the unit tests.
 - Exported CEL-exact helpers for hotty-surf's compiled mode: numeric ==
   and comparisons across kinds, overflow-checked + - *, / and % by zero,

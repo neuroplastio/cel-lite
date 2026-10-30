@@ -1,19 +1,16 @@
 package cellite
 
-import (
-	"strconv"
-	"strings"
-)
+import "strings"
 
 // Check resolves a parsed expression's names in the Env and types every
 // node, as cel-go's checker does, and returns the checked tree, a new
-// one: x is left as it is. An undeclared name, types that don't fit and
-// a standard function this package doesn't implement are errors
-// (*Error). Check has no source, so the Error's Line and Col are 0;
+// one: x is left as it is. An undeclared name, types that don't fit, a
+// standard function this package doesn't implement and a malformed tree
+// are errors (*Error). Check has no source, so the Error's Line and Col are 0;
 // Compile fills them in.
 func (e *Env) Check(x *Expr) (*Expr, error) {
-	if deepNode(x, 1) != nil {
-		return nil, &Error{Kind: SyntaxError, Pos: x.Pos, Msg: "expression is nested deeper than " + strconv.Itoa(MaxDepth)}
+	if err := malformed(x); err != nil {
+		return nil, err
 	}
 	c := &checker{env: e}
 	c.n.size = treeSize(x)

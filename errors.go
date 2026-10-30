@@ -9,7 +9,9 @@ import (
 type ErrorKind uint8
 
 const (
-	// SyntaxError: the source doesn't parse as CEL.
+	// SyntaxError: the source doesn't parse as CEL, or a tree a program
+	// built isn't one: a node missing an operand, or one Program is
+	// given that refers to what its Env doesn't declare.
 	SyntaxError ErrorKind = iota + 1
 	// Undeclared: a name the Env doesn't declare, a variable or a
 	// function. Error.Name is the name.

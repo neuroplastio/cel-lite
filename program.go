@@ -35,10 +35,14 @@ func (e *Env) Compile(src string) (*Program, error) {
 }
 
 // Program plans a checked expression, the tree Check returned in this
-// Env.
+// Env. A tree that refers to what the Env doesn't declare, a variable or
+// a field by an index out of range or a helper it hasn't, is an error.
 func (e *Env) Program(x *Expr) (*Program, error) {
-	if deepNode(x, 1) != nil {
-		return nil, &Error{Kind: SyntaxError, Pos: x.Pos, Msg: "expression is nested deeper than " + strconv.Itoa(MaxDepth)}
+	if err := malformed(x); err != nil {
+		return nil, err
+	}
+	if n := e.unchecked(x); n != nil {
+		return nil, &Error{Kind: SyntaxError, Pos: n.Pos, Msg: "not a tree Check returned in this Env: a reference it doesn't declare"}
 	}
 	c := &compiler{env: e, size: treeSize(x)}
 	fn := c.compile(x)
