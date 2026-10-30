@@ -2,6 +2,7 @@ package cellite
 
 import (
 	"errors"
+	"sort"
 	"strings"
 	"testing"
 )
@@ -335,5 +336,32 @@ func TestNewEnvErrors(t *testing.T) {
 		if _, err := NewEnv(d); err == nil {
 			t.Errorf("NewEnv(%+v) gave no error", d)
 		}
+	}
+}
+
+// TestNames checks that the names CEL keeps are the ones NewEnv refuses.
+func TestNames(t *testing.T) {
+	helper := func(name string) Decls {
+		return Decls{Funcs: []Func{{Name: name, Overloads: []Overload{{ID: "h", Args: []Type{Int}, Result: Int,
+			Fn: func([]Value) (Value, error) { return IntValue(0), nil }}}}}}
+	}
+	for _, names := range [][]string{ReservedWords(), TypeNames(), StandardFunctions()} {
+		if len(names) == 0 || !sort.StringsAreSorted(names) {
+			t.Errorf("%q: empty or not sorted", names)
+		}
+		for _, name := range names {
+			if _, err := NewEnv(helper(name)); err == nil {
+				t.Errorf("a helper named %q is accepted", name)
+			}
+		}
+	}
+	for _, name := range ReservedWords() {
+		if _, err := NewEnv(Decls{Vars: []Var{{Name: name, Type: Int}}}); err == nil {
+			t.Errorf("a variable named %q is accepted", name)
+		}
+	}
+	ReservedWords()[0] = "x"
+	if ReservedWords()[0] == "x" {
+		t.Error("ReservedWords shares its slice")
 	}
 }
