@@ -471,7 +471,11 @@ func equality(x *Expr, args []evalFn, ne bool) evalFn {
 			if lv.k >= errKind {
 				return lv
 			}
-			return BoolValue(equal(lv, rv) != ne)
+			eq, ok := equal(lv, rv)
+			if !ok {
+				return structsCompared()
+			}
+			return BoolValue(eq != ne)
 		}
 	}
 	if lv, ok := constValue(x.Args[0], l); ok {
@@ -480,7 +484,11 @@ func equality(x *Expr, args []evalFn, ne bool) evalFn {
 			if rv.k >= errKind {
 				return rv
 			}
-			return BoolValue(equal(lv, rv) != ne)
+			eq, ok := equal(lv, rv)
+			if !ok {
+				return structsCompared()
+			}
+			return BoolValue(eq != ne)
 		}
 	}
 	return func(a Activation) Value {
@@ -497,8 +505,18 @@ func equality(x *Expr, args []evalFn, ne bool) evalFn {
 		case rv.k == unknownKind:
 			return rv
 		}
-		return BoolValue(equal(lv, rv) != ne)
+		eq, ok := equal(lv, rv)
+		if !ok {
+			return structsCompared()
+		}
+		return BoolValue(eq != ne)
 	}
+}
+
+// structsCompared is the error of == or in that meets two structs, which
+// a dyn hid from Check: refused by name, as Check refuses it.
+func structsCompared() Value {
+	return errValue(eMessage, "comparing structs is not supported")
 }
 
 // constValue is x's value, planned as fn, when it is the same on every
@@ -801,58 +819,79 @@ func formatKey(k Value) string {
 
 // equal is CEL's ==: numbers compare across int, uint and double, NaN
 // equals nothing, lists and maps compare their elements, and values of
-// different kinds are not equal.
+// different kinds are not equal. It is not ok when it meets two structs,
+// which cel-lite doesn't compare, unless elements that are surely unequal
+// decide it anyway: a map's order is random, so that is the rule that
+// doesn't depend on it.
 //
 //go:noinline
-func equal(l, r Value) bool {
+func equal(l, r Value) (eq, ok bool) {
 	switch l.k {
 	case NullKind:
-		return r.k == NullKind
+		return r.k == NullKind, true
 	case BoolKind:
-		return r.k == BoolKind && l.n == r.n
+		return r.k == BoolKind && l.n == r.n, true
 	case StringKind:
-		return r.k == StringKind && l.s == r.s
+		return r.k == StringKind && l.s == r.s, true
 	case BytesKind:
-		return r.k == BytesKind && l.s == r.s
+		return r.k == BytesKind && l.s == r.s, true
 	case IntKind, UintKind, DoubleKind:
 		switch r.k {
 		case IntKind, UintKind, DoubleKind:
 			c, ok := compareNum(l, r)
-			return ok && c == 0
+			return ok && c == 0, true
 		}
-		return false
+		return false, true
 	case ListKind:
 		if r.k != ListKind {
-			return false
+			return false, true
 		}
 		a, b := l.o.(List), r.o.(List)
 		n := a.Len()
 		if b.Len() != n {
-			return false
+			return false, true
 		}
+		refused := false
 		for i := 0; i < n; i++ {
-			if !equal(a.At(i), b.At(i)) {
-				return false
+			switch eq, ok := equal(a.At(i), b.At(i)); {
+			case !ok:
+				refused = true
+			case !eq:
+				return false, true
 			}
 		}
-		return true
+		return !refused, !refused
 	case MapKind:
 		if r.k != MapKind {
-			return false
+			return false, true
 		}
 		a, b := l.o.(Map), r.o.(Map)
 		if a.Len() != b.Len() {
-			return false
+			return false, true
 		}
-		eq := true
+		eq, refused := true, false
 		a.Range(func(k, v Value) bool {
-			w, ok := mapGet(b, k)
-			eq = ok && equal(v, w)
+			w, found := mapGet(b, k)
+			if !found {
+				eq = false
+				return false
+			}
+			switch e, ok := equal(v, w); {
+			case !ok:
+				refused = true
+			case !e:
+				eq = false
+			}
 			return eq
 		})
-		return eq
+		if !eq {
+			return false, true
+		}
+		return !refused, !refused
+	case StructKind:
+		return false, r.k != StructKind
 	}
-	return false
+	return false, true
 }
 
 // compareNum compares two numbers exactly, across kinds. It is not ok
@@ -994,11 +1033,19 @@ func isNaN(v Value) bool { return v.k == DoubleKind && math.IsNaN(math.Float64fr
 func in(l, r Value) Value {
 	switch r.k {
 	case ListKind:
+		// An equal element decides it, whatever else is in the list.
 		ls := r.o.(List)
+		refused := false
 		for i, n := 0, ls.Len(); i < n; i++ {
-			if equal(l, ls.At(i)) {
+			switch eq, ok := equal(l, ls.At(i)); {
+			case !ok:
+				refused = true
+			case eq:
 				return BoolValue(true)
 			}
+		}
+		if refused {
+			return structsCompared()
 		}
 		return BoolValue(false)
 	case MapKind:

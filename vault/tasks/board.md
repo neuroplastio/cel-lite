@@ -17,7 +17,18 @@ Top first. Claim an item before working on it; drop it when done.
   a Value), which skips the Value copies for keymaps. Not needed while
   the 32-byte Value is off (gov, 2026-10-30); the 32-byte Value would
   make it unnecessary.
-- Structs in the oracle (cel-go's native types), beside the unit tests.
+- Values of another kind than declared, as untyped data gives them. The
+  oracle binds each variable to its own type only. With a string
+  variable given an int, a conversion converts by the value's kind
+  (`int(s)` is 1) where cel-go keeps the overload Check chose and errors;
+  `s in {'a': 'x'}` with s bytes is false where cel-go errors. Every
+  other operator tried errors as cel-go does. Check a conversion's
+  argument against its checked overload, and add an oracle test that
+  binds variables to values of other kinds. For v0.1.1.
+- `x == null` where x is a struct: Check refuses it as comparing
+  structs, but it compares none, and cel-go allows it (with a native
+  type's nil pointer read as a zero struct, it is false there). Allow
+  it, with oracle cases in TestOracleStructs.
 - Exported CEL-exact helpers for hotty-surf's compiled mode: numeric ==
   and comparisons across kinds, overflow-checked + - *, / and % by zero,
   the dyn paths.

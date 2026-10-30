@@ -114,6 +114,14 @@ func TestEval(t *testing.T) {
 		{`[1, 2, 3][n]`, "int", "2"},
 		{`{'a': 1, 'a': 2}['a']`, "int", "2"},
 		{`size('héllo')`, "int", "5"},
+		// Structs a dyn hid from Check, where the answer doesn't depend on
+		// how they would compare.
+		{`st == 1`, "bool", "false"},
+		{`st != null`, "bool", "true"},
+		{`[st, 1] == [st, 2]`, "bool", "false"},
+		{`{'a': st, 'b': 1} == {'a': st, 'b': 2}`, "bool", "false"},
+		{`'a' in [st, 'a']`, "bool", "true"},
+		{`st in [1, 'a']`, "bool", "false"},
 		{`string(1.5e10)`, "string", "1.5e+10"},
 		{`string(b'abc')`, "string", "abc"},
 		{`1 < dyn(1.5)`, "bool", "true"},
@@ -214,6 +222,13 @@ func TestEvalErrors(t *testing.T) {
 		{`upper(st)`, "no such overload"},
 		{`label(st)`, "no such overload"},
 		{`dyn(item.count) + 'a'`, "no such overload"},
+		// Structs a dyn hid from Check: refused when they meet.
+		{`st == st`, "comparing structs is not supported"},
+		{`dyn(item) != st`, "comparing structs is not supported"},
+		{`[st] == [st]`, "comparing structs is not supported"},
+		{`{'a': st, 'b': 1} == {'a': st, 'b': 1}`, "comparing structs is not supported"},
+		{`st in [1, st]`, "comparing structs is not supported"},
+		{`has(st.title)`, "has() on a struct's field is not supported"},
 	} {
 		p, err := env.Compile(c.src)
 		if err != nil {

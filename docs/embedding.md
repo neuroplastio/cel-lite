@@ -120,6 +120,16 @@ func (f *file) Field(i int) cellite.Value {
 The value is `cellite.ObjectValue("File", f)`, and `file.size > 1024`
 reads it.
 
+A field whose type is a struct may have no value, like a nil pointer.
+Return an Object of the struct's zero value to read it as cel-go reads a
+native type's nil pointer, and protobuf an unset message: `a.next.size`
+is then `0`. Return `cellite.NullValue()` instead, and selecting from it
+is an error.
+
+cel-lite doesn't compare structs. Check refuses `==` and `in` on them,
+and so does the evaluation where a dyn hid them from Check, unless the
+answer doesn't depend on it.
+
 ## Activations
 
 An activation gives one evaluation its variables' values: for each

@@ -28,6 +28,9 @@ type world struct {
 	decls []decl
 	lite  *cellite.Env
 	cel   *cel.Env
+	// toLite, if set, is a binding's value as cellite reads it, where
+	// that isn't the Go value cel-go reads: a struct's Object.
+	toLite func(v any) any
 }
 
 func newWorld(t testing.TB, decls []decl) *world {
@@ -132,11 +135,20 @@ func (w *world) celCompile(src string) (prg cel.Program, o outcome) {
 	if err != nil {
 		return nil, outcome{compileErr: err.Error()}
 	}
-	return prg, outcome{typ: ast.OutputType().String()}
+	// A struct's cel-go name has its Go package's (oracle.Item); its
+	// cellite name is the declared one.
+	return prg, outcome{typ: strings.ReplaceAll(ast.OutputType().String(), "oracle.", "")}
 }
 
 func (w *world) liteEval(p *cellite.Program, b binding) outcome {
-	v, err := p.Eval(w.lite.Activation(b.vals, b.unknown...))
+	vals := b.vals
+	if w.toLite != nil {
+		vals = make(map[string]any, len(b.vals))
+		for k, v := range b.vals {
+			vals[k] = w.toLite(v)
+		}
+	}
+	v, err := p.Eval(w.lite.Activation(vals, b.unknown...))
 	switch {
 	case err == cellite.ErrUnknown:
 		return outcome{kind: "unknown"}
@@ -174,11 +186,13 @@ func (w *world) celEval(prg cel.Program, b binding) (o outcome) {
 
 // compare runs src in both engines on each binding and reports how they
 // differ, or "" when they agree. A cellite refusal by name agrees with
-// anything, and so does one of its depth limits. So does its run-time
-// "invalid map key type": a map literal whose dyn key turns out a double,
-// a list or a map. CEL's language definition (langdef.md, Values) allows
-// map keys of int, uint, bool and string only, and cel-lite follows it;
-// cel-go builds the map, where no lookup finds a NaN key, or a list.
+// anything, and so does one of its depth limits. So does its refusal when
+// the expression runs, of what a dyn turns out to be: has() on a struct's
+// field. So does its run-time "invalid map key type": a map literal whose
+// dyn key turns out a double, a list or a map. CEL's language definition
+// (langdef.md, Values) allows map keys of int, uint, bool and string
+// only, and cel-lite follows it; cel-go builds the map, where no lookup
+// finds a NaN key, or a list.
 func (w *world) compare(src string, bs []binding) string {
 	lp, lo := w.liteCompile(src)
 	cp, co := w.celCompile(src)
@@ -199,7 +213,8 @@ func (w *world) compare(src string, bs []binding) string {
 	}
 	for _, b := range bs {
 		l, c := w.liteEval(lp, b), w.celEval(cp, b)
-		if c.kind == "panic" || l.kind == "error" && strings.HasPrefix(l.msg, "invalid map key type") {
+		if c.kind == "panic" || l.kind == "error" &&
+			(strings.HasPrefix(l.msg, "invalid map key type") || strings.HasSuffix(l.msg, " is not supported")) {
 			continue
 		}
 		if l.kind != c.kind || l.kind == "value" && !reflect.DeepEqual(l.val, c.val) {
@@ -255,6 +270,9 @@ func canonLite(v cellite.Value) any {
 		})
 		return out
 	}
+	if o, ok := v.Object().(liteItem); ok {
+		return canonItem(o.p)
+	}
 	return "struct:" + v.StructName()
 }
 
@@ -296,6 +314,12 @@ func canonCel(v ref.Val) any {
 			out[i] = canonCel(v.Get(types.Int(i)))
 		}
 		return out
+	}
+	switch x := v.Value().(type) {
+	case *Item:
+		return canonItem(x)
+	case Item:
+		return canonItem(&x)
 	}
 	return fmt.Sprintf("other:%T", v)
 }

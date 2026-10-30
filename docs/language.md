@@ -161,6 +161,12 @@ feature:
 The macros are all, exists, exists_one, map and filter. The last row is
 explained [below](#where-cel-lite-and-cel-go-differ).
 
+A dyn can hide a struct from the checker: `x == y` with both dyn, or
+`has(x.f)`. When the values turn out to be structs, the refusal comes as
+the expression runs, as an `*EvalError` that says it is not supported,
+unless the answer doesn't depend on it: `[x, 1] == [y, 2]` is `false`,
+and `'a' in [x, 'a']` is `true`.
+
 ## Where cel-lite and cel-go differ
 
 Where cel-go strays from the language definition, cel-lite follows the
@@ -183,6 +189,10 @@ of these cases by name.
   the type instead, a value the expression's checked type doesn't allow:
   `list` declared a bool gives the type `list`. cel-lite reports the
   variable missing, as for any other name.
+- **`[]` on a struct.** cel-go reads a struct's field by its name with
+  `[]` when a dyn hides the struct: `dyn(item)['title']`. In the
+  definition `[]` reads a list or a map, and a field is read with `.`;
+  cel-lite gives an error (no such overload).
 - **Limits.** cel-lite reads shorter and shallower expressions than
   cel-go: see [Limits](tinygo.md#limits).
 

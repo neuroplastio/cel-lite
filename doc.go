@@ -52,6 +52,9 @@
 //     the type instead, a value the expression's checked type doesn't
 //     allow: `list` declared a bool gives the type list. cel-lite reports
 //     the variable missing, as for any other name.
+//   - cel-go reads a struct's field by its name with [] when a dyn hides
+//     the struct, `dyn(item)['title']`. In the definition [] reads a list
+//     or a map; cel-lite gives an error (no such overload).
 //   - cel-lite's limits are lower than cel-go's (Limits).
 //
 // # Values
@@ -60,7 +63,9 @@
 // through the List, Map and Object interfaces, so a program can hand over
 // its own data without copying it; ValueOf wraps Go's own slices and maps.
 // A struct the program declares (Decls.Structs) is read by field index,
-// which Check resolves, through Object.
+// which Check resolves, through Object. cel-lite doesn't compare structs:
+// Check refuses == on them, and where a dyn hides them the evaluation
+// does, unless the answer doesn't depend on it.
 //
 // # Limits
 //
