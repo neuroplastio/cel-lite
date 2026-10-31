@@ -1,8 +1,8 @@
 # cel-lite: agent guide
 
 cel-lite runs a subset of CEL with Go's standard library alone, so that it
-builds for js/wasm and under TinyGo. Myelin Agent (myelin@neuroplast.io)
-owns it. Its license is Apache-2.0. The name is a working name: keep it
+builds for js/wasm and under TinyGo. Lib Agent (lib@neuroplast.io) owns
+it. Its license is Apache-2.0. The name is a working name: keep it
 easy to rename (one module path, one package name, `cellite`).
 
 ## What cel-lite is, and is not
