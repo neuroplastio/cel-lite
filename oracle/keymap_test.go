@@ -9,7 +9,7 @@ import (
 	"strconv"
 	"testing"
 
-	"github.com/neuroplastio/cel-lite"
+	"neuroplast.io/cel-lite"
 )
 
 // keymapFiles are where kubecom's keymaps live, with their CEL contexts,

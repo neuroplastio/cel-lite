@@ -14,7 +14,7 @@ declarations, and hand each evaluation the values.
 ## Install
 
 ```sh
-go get github.com/neuroplastio/cel-lite
+go get neuroplast.io/cel-lite
 ```
 
 cel-lite needs Go 1.24 or later, and nothing else: the module requires no
@@ -31,7 +31,7 @@ import (
 	"fmt"
 	"log"
 
-	"github.com/neuroplastio/cel-lite"
+	"neuroplast.io/cel-lite"
 )
 
 func main() {

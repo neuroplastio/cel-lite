@@ -45,7 +45,7 @@ echo "== test"
 # The module needs nothing but the standard library.
 echo "== dependencies"
 deps=$("$GO" list -m all)
-if [ "$deps" != "github.com/neuroplastio/cel-lite" ]; then
+if [ "$deps" != "neuroplast.io/cel-lite" ]; then
 	echo "dependencies: the module requires more than the standard library:"
 	echo "$deps"
 	exit 1

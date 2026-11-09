@@ -6,7 +6,7 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/neuroplastio/cel-lite"
+	"neuroplast.io/cel-lite"
 )
 
 // The world the generated expressions run in: a variable of each type,

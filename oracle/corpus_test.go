@@ -5,7 +5,7 @@ import (
 	"math/rand/v2"
 	"testing"
 
-	"github.com/neuroplastio/cel-lite"
+	"neuroplast.io/cel-lite"
 )
 
 // corpus are expressions picked for their corners: the parser's (signs,

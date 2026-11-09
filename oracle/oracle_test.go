@@ -14,7 +14,7 @@ import (
 	"cel.dev/cel-go/common/types/ref"
 	"cel.dev/cel-go/common/types/traits"
 
-	"github.com/neuroplastio/cel-lite"
+	"neuroplast.io/cel-lite"
 )
 
 // decl is a variable declared to both engines.

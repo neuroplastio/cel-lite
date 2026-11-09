@@ -80,3 +80,12 @@ structs, so Check lets them through and the value decides: a struct is
 never null, and a NullValue an Object gives for an unset field is. With
 cel-go's zero struct for a nil pointer it is false; with NullValue it is
 a presence test, which hotty-surf's templates use (gov, hotty-ui).
+
+## D10: The module path is neuroplast.io/cel-lite (2026-11-09)
+
+Supersedes D1's path: cel-lite is the module neuroplast.io/cel-lite, and
+its oracle neuroplast.io/cel-lite/oracle. The repository stays
+github.com/neuroplastio/cel-lite; neuroplast.io answers `go get` with
+it (infra 6264dce). The path is the API, so the first release on it is
+v0.2.0. v0.1.1 and earlier stay at github.com/neuroplastio/cel-lite, and
+a user moves to the new path when they upgrade (the maintainer).

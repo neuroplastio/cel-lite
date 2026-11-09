@@ -29,7 +29,7 @@ programs that would rather generate code from an expression than run it.
 ## Install
 
 ```sh
-go get github.com/neuroplastio/cel-lite
+go get neuroplast.io/cel-lite
 ```
 
 It needs Go 1.24 or later. The package is `cellite`.
@@ -107,14 +107,16 @@ where cel-lite follows CEL's definition rather than cel-go.
   each phase needs, and building for TinyGo and js/wasm.
 - [Performance](docs/performance.md): the benchmarks against cel-go, how
   they were measured, and how to run them.
-- [Package reference](https://pkg.go.dev/github.com/neuroplastio/cel-lite)
+- [Package reference](https://pkg.go.dev/neuroplast.io/cel-lite)
   on pkg.go.dev, with runnable examples.
 
 ## Status
 
 Pre-1.0. The current version is on
-[pkg.go.dev](https://pkg.go.dev/github.com/neuroplastio/cel-lite) and
-among the [tags](https://github.com/neuroplastio/cel-lite/tags). cel-lite
+[pkg.go.dev](https://pkg.go.dev/neuroplast.io/cel-lite) and
+among the [tags](https://github.com/neuroplastio/cel-lite/tags).
+Up to v0.1.1 the module was github.com/neuroplastio/cel-lite; from v0.2.0
+it is neuroplast.io/cel-lite, so upgrading changes the import path. cel-lite
 follows semantic versioning: until 1.0, a release that breaks the API
 raises the minor version (0.1 to 0.2), and a patch release never does.
 Before 1.0 these may still change: the tree (`Expr` and its `Op`s) as

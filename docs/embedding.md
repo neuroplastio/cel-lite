@@ -8,7 +8,7 @@ description: environments, types, values, activations, helpers, programs, errors
 # Embedding
 
 This page is the tour of cel-lite's API for a program that embeds it.
-The [package reference](https://pkg.go.dev/github.com/neuroplastio/cel-lite)
+The [package reference](https://pkg.go.dev/neuroplast.io/cel-lite)
 has every identifier, with runnable examples.
 
 ## The environment

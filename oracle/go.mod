@@ -1,12 +1,12 @@
-module github.com/neuroplastio/cel-lite/oracle
+module neuroplast.io/cel-lite/oracle
 
 go 1.24.0
 
-replace github.com/neuroplastio/cel-lite => ../
+replace neuroplast.io/cel-lite => ../
 
 require (
 	cel.dev/cel-go v0.32.0
-	github.com/neuroplastio/cel-lite v0.0.0-00010101000000-000000000000
+	neuroplast.io/cel-lite v0.0.0-00010101000000-000000000000
 )
 
 require (

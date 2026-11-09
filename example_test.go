@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/neuroplastio/cel-lite"
+	"neuroplast.io/cel-lite"
 )
 
 // A program declares the variables an expression may read, compiles the

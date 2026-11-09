@@ -10,7 +10,7 @@ import (
 	"cel.dev/cel-go/cel"
 	"cel.dev/cel-go/ext"
 
-	"github.com/neuroplastio/cel-lite"
+	"neuroplast.io/cel-lite"
 )
 
 // Item is a struct both engines read: cel-go as a native Go type, cellite
